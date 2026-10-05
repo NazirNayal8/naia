@@ -1,0 +1,58 @@
+name: Package checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install NAIA and build tools
+        run: python -m pip install build twine .
+      - name: Test source contracts
+        run: python -m unittest discover -s tests -v
+      - name: Build wheels and source distributions
+        run: |
+          python -m build --outdir dist
+          python -m twine check dist/*
+      - name: Test installation from packaged sources
+        run: |
+          python -m venv smoke-env
+          smoke-env/bin/python -m pip install dist/*.tar.gz
+          smoke-env/bin/python tools/smoke_install.py
+      - name: Save distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: naia-distributions-python-${{ matrix.python }}
+          path: dist/*
+
+  lens-capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install CPU PyTorch and NAIA
+        run: |
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install .
+      - name: Test model capture
+        run: python -m unittest discover -s tests -p test_architecture.py -v

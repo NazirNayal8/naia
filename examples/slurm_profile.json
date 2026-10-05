@@ -1,0 +1,19 @@
+{
+  "kind": "slurm",
+  "management_python": "/replace/with/shared/management-env/bin/python",
+  "command_python": "/replace/with/training-env/bin/python",
+  "resources": {
+    "partition": "replace-with-training-partition",
+    "gres": "gpu:1",
+    "cpus-per-task": 4,
+    "mem": "16G",
+    "time": "01:00:00"
+  },
+  "evaluation_resources": {
+    "partition": "replace-with-evaluation-partition",
+    "gres": "gpu:1",
+    "cpus-per-task": 4,
+    "mem": "16G",
+    "time": "01:00:00"
+  }
+}
