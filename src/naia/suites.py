@@ -10,11 +10,12 @@ from .tasks import Tasks
 
 BEGIN = "<!-- lab:results -->"
 END = "<!-- /lab:results -->"
+UI_STATUSES = ("proposed", "approved", "ready", "queued", "training", "evaluating", "active", "running", "reopened", "sealed", "shelved")
 
 
 def definition_digest(data):
     """Sealing changes lifecycle metadata, not the experiment that produced results."""
-    return digest({k: v for k, v in data.items() if k not in {"status", "sealed"}})
+    return digest({k: v for k, v in data.items() if k not in {"status", "sealed", "ui_status", "ui_status_changed"}})
 
 
 def command_valid(command):
@@ -154,7 +155,28 @@ class Suites:
             raise NAIAError("Sealing requires a named user")
         with locked(self.project.directory / "state/locks/suites.lock"):
             data = self.load(suite_id)
-            data.update(status="sealed", sealed={"by": actor, "at": now()})
+            data.update(status="sealed", ui_status="sealed", sealed={"by": actor, "at": now()})
+            write_json(self.location(suite_id) / "suite.json", data)
+        self.sync()
+        return data
+
+    def set_status(self, suite_id, status, actor):
+        """User-edited display lifecycle is not execution approval or observed job state."""
+        if not isinstance(status, str) or status not in UI_STATUSES:
+            raise NAIAError("Unknown suite status")
+        if not isinstance(actor, str) or not actor.strip():
+            raise NAIAError("Status changes require a named user")
+        with locked(self.project.directory / "state/locks/suites.lock"):
+            data = self.load(suite_id)
+            data.update(ui_status=status, ui_status_changed={"by": actor, "at": now()})
+            if status in ("sealed", "shelved"):
+                data.update(status="sealed", sealed={"by": actor, "at": now()})
+            elif data.get("status") == "sealed":
+                if not data.get("approval", {}).get("by"):
+                    raise NAIAError("Status labels cannot approve an experiment")
+                data["status"] = "approved"
+            elif status == "approved" and data.get("status") != "approved":
+                raise NAIAError("Status labels cannot approve an experiment")
             write_json(self.location(suite_id) / "suite.json", data)
         self.sync()
         return data
@@ -244,7 +266,8 @@ class Suites:
                 if updated != text:
                     atomic_text(card, updated)
                 relative = str(card.relative_to(self.project.root))
-                registry.append({"id": data["id"], "title": data["title"], "status": data["status"],
+                registry.append({"id": data["id"], "title": data["title"], "status": data.get("ui_status", data["status"]),
+                                 "execution_status": data["status"], "summary": data["question"],
                                  "results_ready": complete, "predecessors": data.get("predecessors", []), "card": relative})
                 if complete:
                     Tasks(self.project).review(data["id"], relative)

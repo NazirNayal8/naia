@@ -1,5 +1,17 @@
 # Release notes
 
+## Unreleased
+
+- Existing-project setup collects bounded repository evidence for assistant review.
+- Assistants propose context with file references; users confirm or correct it.
+  Discovery keeps proposals unconfirmed and preserves confirmed settings.
+- Scan exclusions and manual setup without scanning are available.
+- Restored the local research UI's dark task deck and draggable suite graph,
+  including task editing, archiving, status controls, and rendered suite cards.
+- Replaced the tree-only Lens screen with a draggable, color-coded graph,
+  hierarchy levels, shape inspection, and observed-call playback.
+- Removed the separate project-context tab; onboarding records are unchanged.
+
 ## 0.1.0a0
 
 Initial alpha release:
@@ -16,5 +28,5 @@ Verified: 74 tests in Python 3.10 with PyTorch, package builds and isolated
 installation, and Chromium checks for the dashboard and both Lens viewers.
 
 Real-cluster validation, interrupted-run recovery, migration, and PyPI publication
-are pending. The browser does not yet edit task text or suite status.
+are pending. Task and suite editing improvements are listed under Unreleased.
 See [TODO](TODO.md).

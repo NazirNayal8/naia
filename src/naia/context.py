@@ -5,6 +5,7 @@ import copy
 from pathlib import Path
 import shutil
 
+from .discovery import inspect_project, is_excluded, normalize_exclusions
 from .storage import NAIAError, atomic_text, inside, locked, now, read_json, write_json
 
 
@@ -50,7 +51,7 @@ QUESTIONS = [
     {"field": "governance", "question": "NAIA's standard rules already apply. Any project-specific exceptions, retention constraints, or excluded inspection paths?"},
 ]
 ASSISTANT_RULES = """- Read `.lab/project.json` and the task queue before project work. Follow `naia policy`; respect existing project instructions and inspection exclusions. Codex and Claude share the same NAIA records.
-- Users state intent; handle routine workflow steps without asking them to repeat these rules. During onboarding, inspect the permitted repo, propose detected settings, and ask only about unresolved project choices. Record confirmed answers, not guesses. Preserve the config system; suggest Hydra for a new ML project, never migrate silently.
+- Users state intent; handle routine workflow steps without asking them to repeat these rules. Before onboarding an existing project, read its instructions and inspection exclusions, then use `naia init` or `naia context scan` with those exclusions. Infer the goal, training/evaluation setup, configuration, and supported hardware from the permitted README, scripts, and configs. Cite files with `naia context propose`; show one concise summary for the user to confirm or correct instead of asking them to describe the project from scratch. Ask only for missing or uncertain details, and flag conflicting or outdated evidence. Accept proposals only after explicit user confirmation; discovery is not launch authorization. Preserve confirmed context and the existing config system; suggest Hydra for a new ML project, never migrate silently.
 - After substantive discussions, add or update tasks for decisions the user must make, outstanding results they must review, and blockers needing their input. Link evidence and prioritize the next decision. Reuse existing tasks; do not create duplicates or tasks for purely informational exchanges. Maintain review follow-ups for evaluations and analyses without being reminded.
 - Before any authorized launch, register the approved suite, reserve its results, validate its definition, run a dry-run preflight, and show a brief plan. Use shared `naia suite launch` / `evaluate` commands and confirmed backends. These checks do not require separate reminders or approval for each routine step; new designs, meaningful scope changes, and actual launches still need user authorization.
 - Automatic declared evaluation is on by default. Reuse verified completed work and live jobs; inspect uncertain states before retrying. Sync validated results and ensure a review task exists when evidence is ready. Never present generated metrics as automatic scientific conclusions.
@@ -89,9 +90,10 @@ class Project:
             raise NAIAError("Unsupported project context version")
         return data
 
-    def initialize(self, assistant=None):
+    def initialize(self, assistant=None, *, excluded_paths=(), scan=True):
         if assistant is not None and (not isinstance(assistant, str) or assistant not in ASSISTANTS):
             raise NAIAError("Choose assistant codex, claude, or both")
+        exclusions = normalize_exclusions(excluded_paths)
         self.root.mkdir(parents=True, exist_ok=True)
         with locked(self.directory / "state/locks/context.lock"):
             if self.context_path.exists():
@@ -109,20 +111,183 @@ class Project:
                     "assistants": {"selection": None, "instruction_files": []},
                     "policies": copy.deepcopy(POLICY),
                     "backends": {"local": {"kind": "local", "confirmed": False}},
+                    "proposals": {},
                 }
+                if exclusions:
+                    data["inspection_excluded_paths"] = exclusions
+                if scan:
+                    data["discovery"] = {**inspect_project(self.root, excluded_paths=exclusions),
+                                         "scanned_at": now()}
                 write_json(self.context_path, data)
                 write_json(self.directory / "tasks.json", {"schema_version": 1, "order": [], "items": {}})
                 write_json(self.directory / "state/registry.json", {"schema_version": 1, "suites": []})
+            if exclusions:
+                merged = self._exclusions(data, exclusions)
+                if data.get("inspection_excluded_paths") != merged:
+                    data["inspection_excluded_paths"] = merged
+                    if scan:
+                        data["discovery"] = {**inspect_project(self.root, excluded_paths=merged),
+                                             "scanned_at": now()}
+                    data["revision"] += 1
+                    write_json(self.context_path, data)
         if assistant is not None:
             self.configure_assistant(assistant)
-            return self.load()
+        return self.context_view()
+
+    def context_view(self):
+        """Hide cached discovery and draft evidence that is no longer permitted."""
+        data = copy.deepcopy(self.load())
+        excluded = self._exclusions(data)
+        discovery = data.get("discovery")
+        if discovery:
+            previous = discovery.get("sources", [])
+            discovery["sources"] = [source for source in previous if not is_excluded(source["path"], excluded)]
+            detected = discovery.get("detected", {})
+            for key in ("training_candidates", "evaluation_candidates"):
+                detected[key] = [path for path in detected.get(key, []) if not is_excluded(path, excluded)]
+            if len(previous) != len(discovery["sources"]):
+                detected["configuration"], detected["scheduler"] = [], []
+                discovery["warnings"].append("Some cached evidence is now excluded; rescan for current signals.")
+                discovery["existing_project"] = any(set(source["topics"]) - {"instructions"}
+                                                     for source in discovery["sources"])
+            discovery["excluded_paths"] = excluded
+        blocked = []
+        for field, proposal in list(data.get("proposals", {}).items()):
+            if any(is_excluded(source["path"], excluded) for source in proposal.get("evidence", [])):
+                del data["proposals"][field]
+                blocked.append(field)
+        for field, answer in data["answers"].items():
+            if not answer["confirmed"] and any(is_excluded(source["path"], excluded)
+                                                for source in answer.get("evidence", [])):
+                answer["value"] = None
+                blocked.append(field)
+        if blocked:
+            data["blocked_proposals"] = sorted(set(blocked))
         return data
 
     def questions(self):
-        data = self.load()
+        data = self.context_view()
         choice = data.get("assistants", {}).get("selection")
-        return [{**ASSISTANT_QUESTION, "answer": {"confirmed": bool(choice), "value": choice}},
-                *[{**q, "answer": data["answers"][q["field"]]} for q in QUESTIONS]]
+        questions = [{**ASSISTANT_QUESTION, "answer": {"confirmed": bool(choice), "value": choice},
+                      "mode": "confirmed" if choice else "missing"}]
+        discovery = data.get("discovery", {})
+        excluded = self._exclusions(data)
+        for item in QUESTIONS:
+            field = item["field"]
+            answer = data["answers"][field]
+            question = {**item, "answer": answer}
+            proposal = data.get("proposals", {}).get(field)
+            if proposal and proposal.get("status") != "pending":
+                proposal = None
+            if not proposal and not answer["confirmed"] and answer["value"] not in (None, "", {}, []):
+                proposal = {"value": answer["value"], "evidence": answer.get("evidence", [])}
+            evidence = [{"path": source["path"], "line": source["line"]}
+                        for source in discovery.get("sources", [])
+                        if field in source.get("topics", []) and not is_excluded(source["path"], excluded)]
+            if proposal:
+                question.update(mode="confirm_proposal", proposal=proposal,
+                                question=f"Does this proposed {field} setup match your project? Confirm or correct it.")
+            elif answer["confirmed"]:
+                question["mode"] = "confirmed"
+            elif evidence:
+                question.update(mode="inspect_evidence", evidence=evidence,
+                                assistant_action="Infer this setting from the cited files, propose it, then ask for confirmation. Ask only about missing or uncertain details.")
+            else:
+                question["mode"] = "missing"
+            questions.append(question)
+        return questions
+
+    @staticmethod
+    def _exclusions(data, extra=()):
+        governance = data.get("answers", {}).get("governance", {}).get("value", {})
+        governance_paths = governance.get("excluded_paths", []) if isinstance(governance, dict) else []
+        groups = (data.get("inspection_excluded_paths", []),
+                  data.get("discovery", {}).get("excluded_paths", []), governance_paths, extra)
+        return normalize_exclusions([path for group in groups for path in normalize_exclusions(group)])
+
+    def scan(self, *, excluded_paths=()):
+        """Refresh static evidence without changing confirmed context or authorizing execution."""
+        with locked(self.directory / "state/locks/context.lock"):
+            data = self.load()
+            exclusions = self._exclusions(data, normalize_exclusions(excluded_paths))
+            discovery = {**inspect_project(self.root, excluded_paths=exclusions), "scanned_at": now()}
+            data["discovery"] = discovery
+            if exclusions:
+                data["inspection_excluded_paths"] = exclusions
+            data["revision"] += 1
+            write_json(self.context_path, data)
+        return discovery
+
+    def _evidence(self, references, data):
+        if isinstance(references, (str, bytes)) or not references:
+            raise NAIAError("Inferred proposals require at least one relative file reference")
+        evidence = []
+        for reference in references:
+            if not isinstance(reference, str) or not reference or "\0" in reference or "\n" in reference:
+                raise NAIAError("Evidence must be a relative file or file:line reference")
+            filename, separator, line = reference.rpartition(":")
+            if not separator:
+                filename, line = reference, "1"
+            if not line.isdecimal() or int(line) < 1:
+                raise NAIAError("Evidence line must be a positive integer")
+            relative = Path(filename)
+            normalize_exclusions([filename])
+            if relative.is_absolute() or not filename or ".." in relative.parts:
+                raise NAIAError("Evidence must be a relative file inside the project")
+            if is_excluded(relative.as_posix(), self._exclusions(data)):
+                raise NAIAError(f"Evidence is excluded from inspection: {filename}")
+            for parent in [relative, *relative.parents]:
+                if (self.root / parent).is_symlink():
+                    raise NAIAError("Evidence cannot traverse symlinks")
+            target = self.path(filename)
+            if not target.is_file():
+                raise NAIAError(f"Evidence file does not exist: {filename}")
+            entry = {"path": relative.as_posix(), "line": int(line)}
+            if entry not in evidence:
+                evidence.append(entry)
+        return evidence
+
+    def propose(self, field, value, *, evidence=()):
+        """Save the assistant's interpretation separately from user-approved answers."""
+        if field not in {q["field"] for q in QUESTIONS}:
+            raise NAIAError(f"Unknown onboarding field: {field}")
+        if value in (None, "", {}, []):
+            raise NAIAError("A proposal needs a nonempty value")
+        with locked(self.directory / "state/locks/context.lock"):
+            data = self.load()
+            proposal = {"value": copy.deepcopy(value), "evidence": self._evidence(evidence, data),
+                        "status": "pending", "proposed_at": now()}
+            data.setdefault("proposals", {})[field] = proposal
+            data["revision"] += 1
+            write_json(self.context_path, data)
+        return proposal
+
+    def accept_proposal(self, field, actor):
+        if field not in {q["field"] for q in QUESTIONS}:
+            raise NAIAError(f"Unknown onboarding field: {field}")
+        if not isinstance(actor, str) or not actor.strip():
+            raise NAIAError("Confirmation requires a named user")
+        with locked(self.directory / "state/locks/context.lock"):
+            data = self.load()
+            proposal = data.get("proposals", {}).get(field)
+            if not proposal or proposal.get("status") != "pending":
+                answer = data["answers"][field]
+                if answer["confirmed"] or answer["value"] in (None, "", {}, []):
+                    raise NAIAError(f"No pending proposal for {field}")
+                proposal = {"value": answer["value"], "evidence": answer.get("evidence", []),
+                            "status": "pending"}
+            for source in proposal.get("evidence", []):
+                self._evidence([f"{source['path']}:{source['line']}"], data)
+            accepted_at = now()
+            data["answers"][field] = {"value": copy.deepcopy(proposal["value"]), "confirmed": True,
+                                      "evidence": proposal.get("evidence", []), "confirmed_by": actor,
+                                      "updated_at": accepted_at}
+            data.setdefault("proposals", {})[field] = {**proposal, "status": "accepted",
+                                                       "accepted_by": actor, "accepted_at": accepted_at}
+            data["revision"] += 1
+            data["onboarding"] = {"status": "pending", "confirmed_by": None}
+            write_json(self.context_path, data)
+        return data
 
     def configure_assistant(self, choice):
         if not isinstance(choice, str) or choice not in ASSISTANTS:
@@ -161,6 +326,9 @@ class Project:
         with locked(self.directory / "state/locks/context.lock"):
             data = self.load()
             data["answers"][field] = {"value": value, "confirmed": confirmed, "updated_at": now()}
+            proposal = data.get("proposals", {}).get(field)
+            if proposal and proposal.get("status") == "pending":
+                proposal.update(status="superseded", superseded_at=now())
             data["revision"] += 1
             data["onboarding"] = {"status": "pending", "confirmed_by": None}
             write_json(self.context_path, data)

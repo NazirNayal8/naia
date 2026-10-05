@@ -10,9 +10,15 @@ to repeat the workflow rules.
 
 > Set up NAIA here. I use Codex and Claude.
 
-The assistant checks the repository, asks about unresolved project choices, and
-installs instructions for the selected assistants. Share an example submission
-script if you use Slurm. Review the project settings before confirming them.
+The assistant reads existing instructions and inspection exclusions first, then
+checks permitted README files, scripts, and configuration. NAIA's static scan
+collects evidence; your assistant uses it to infer the project goal, training
+commands, evaluation protocol, and other settings.
+
+It shows a summary with file references for you to confirm or correct, then asks
+only about missing or uncertain details. Proposals remain separate from confirmed
+answers until you approve them. Existing confirmed settings are preserved.
+For Slurm, share a submission script if the repository does not supply enough evidence.
 
 ## Tasks
 

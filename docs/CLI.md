@@ -10,6 +10,7 @@ The CLI is for direct control, automation, and recovery.
 
 Follow the [installation steps](../README.md#install) with Python 3.10+.
 From a source checkout, use `python -m pip install .`. This version is not on PyPI yet.
+Read existing project instructions and inspection exclusions before initialization.
 
 ```bash
 cd /path/to/your/project
@@ -25,8 +26,21 @@ Select a project with `naia --project /path/to/project <command>`.
 
 Choose `codex`, `claude`, or `both` to install managed rules in root `AGENTS.md`, `CLAUDE.md`, or both.
 Setup preserves existing text. Without a recorded choice, `naia init` returns a question for your assistant.
-For an existing project, use `naia instructions install --assistant both`.
+For an already initialized NAIA project, use `naia instructions install --assistant both`.
 See [assistant setup and defaults](FEATURES.md#project-setup).
+
+First `naia init` scans permitted README files, scripts, and configuration for static
+evidence. Add repeatable `--exclude PATH` options with relative paths or globs,
+or `--no-scan` to skip it:
+
+```bash
+naia init --assistant both --exclude archive
+naia context scan --exclude archive
+```
+
+`context scan` refreshes discovery in an initialized project. The scan is bounded
+and skips common secret files, symlinks, and generated data; your assistant interprets
+the evidence. See [discovery limits](FEATURES.md#project-setup).
 
 ## Try the demo
 
@@ -44,19 +58,27 @@ The demo confirms setup only for its own synthetic project.
 
 ## Confirm setup
 
-Your assistant records confirmed project choices. Fresh projects already have reporting and governance
-defaults; the other five topics still need answers.
+Your assistant proposes project choices from evidence, shows a summary with file
+references, and asks you to confirm or correct it. It asks separate questions only
+for missing or uncertain details. Fresh projects already have reporting and governance
+defaults; the other five topics need confirmed proposals or answers.
 See [context fields](FEATURES.md#project-setup).
 
 ```bash
 naia context show
-naia context set project --value @project-answer.json
+naia context propose project --value @project-proposal.json --evidence README.md:3
+naia context accept project --by YOUR_NAME
 naia context backend local --file local.json --confirmed
 naia context confirm --by YOUR_NAME
 naia doctor
 ```
 
-`--value` accepts JSON or `@file`. Add `--confirmed` to `context set` only after the user confirms that answer.
+`propose` accepts JSON or `@file` and requires one or more repeatable
+`--evidence FILE[:LINE]` references relative to the project root.
+Proposals are unconfirmed and separate from answers. Use `accept` only after actual
+user confirmation, and repeat for each proposed field. Discovery and proposals do
+not overwrite existing confirmed answers. `context set FIELD --value JSON|@FILE`
+remains available for direct answers; add `--confirmed` only after user approval.
 `local.json` can contain `{"kind":"local"}`. Final confirmation needs a named user, seven confirmed
 nonempty answers, and at least one confirmed backend. Launches, including dry runs, require this setup
 and a confirmed selected backend. Changing an answer or backend resets setup to pending; confirm again.

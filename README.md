@@ -30,10 +30,13 @@ Open your project with Codex or Claude and ask:
 
 > Set up NAIA here. I use Codex and Claude.
 
-The assistant adds instructions to `AGENTS.md`, `CLAUDE.md`, or both without
-replacing existing content. It checks your current setup and asks about goals,
-hardware, execution, evaluation, and configuration where needed. Confirmed
-answers are saved in `.lab/project.json`.
+The assistant first reads your project instructions and inspection exclusions.
+It adds instructions to `AGENTS.md`, `CLAUDE.md`, or both without replacing existing
+content, and uses repository evidence to propose the goal, training setup,
+evaluation protocol, and other settings. You review a summary with file references,
+confirm or correct it, and answer only what remains missing or uncertain.
+Proposals stay unconfirmed until you approve them; existing confirmed answers
+are preserved in `.lab/project.json`.
 
 Then use ordinary requests: "Add a review task", "Test these learning rates",
 or "Retry the failed evaluations". The instructions cover concise records,
@@ -41,11 +44,15 @@ review followups, launch validation, automatic evaluations, and duplicate checks
 NAIA uses your existing trainer, evaluator, and config system.
 
 Ask the assistant to run `naia ui` to open the dashboard at
-[localhost:8767](http://127.0.0.1:8767). You can change task status and priority
-there; suite design, launches, and sealing go through the assistant or CLI.
+[localhost:8767](http://127.0.0.1:8767). Edit tasks, reorder the queue, change suite
+status, and review cards there. Suite design and launches stay with your assistant
+or the CLI.
 
 For manual setup, run `naia init --assistant both` in your project, then ask the
-assistant to complete onboarding. Use `codex` or `claude` if you use only one.
+assistant to complete onboarding. First initialization collects a bounded static
+scan of README files, scripts, and configuration; your assistant interprets it.
+Use repeatable `--exclude PATH` options for inspection exclusions, or `--no-scan`
+to skip discovery. Use `codex` or `claude` if you use only one.
 
 ## What's included
 
@@ -53,7 +60,8 @@ assistant to complete onboarding. Use `codex` or `claude` if you use only one.
 - Experiment suites with result tables, run tracking, and suite relationships.
 - Sequential local runs or parallel Slurm jobs, with dependent evaluations.
 - Analysis assignments linked to their inputs and outputs.
-- NAIA Lens: expandable model diagrams, tensor shapes, and captured-call playback.
+- NAIA Lens: a draggable, color-coded model graph with hierarchy levels, tensor
+  shapes, and captured-call playback.
   Lens is included in the same package and can also run on its own.
 
 ## Documentation
@@ -67,8 +75,7 @@ assistant to complete onboarding. Use `codex` or `claude` if you use only one.
 
 This is an early alpha. Local execution, installation, PyTorch capture, and the
 browser UI have been tested. Slurm tests use a mocked scheduler; real-cluster
-validation and interrupted-run recovery are still pending. The UI does not yet
-edit task text or suite status.
+validation and interrupted-run recovery are still pending.
 
 NAIA has no embedded chatbot or hosted service. Assistant instructions are not
 a security sandbox; model capture executes trusted Python code. Try a small

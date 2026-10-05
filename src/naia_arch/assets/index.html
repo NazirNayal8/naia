@@ -1,3 +1,85 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NAIA Lens</title><link rel="stylesheet" href="/style.css"></head><body>
-<header><div><span>CONFIG-INDEPENDENT MODEL INSPECTION</span><h1>NAIA Lens</h1></div><div class="controls"><button id="expand" disabled>Expand all</button><button id="collapse" disabled>Collapse</button><button id="play" disabled>Play observed calls</button></div></header>
-<main><section><p id="mode" role="status">Loading saved architecture…</p><div id="tree"></div><h2>Traced / declared dependencies</h2><div id="edges"></div></section><aside><h2>Selected component</h2><pre id="detail">Choose a component to inspect its original module path and observed shapes.</pre><h2>Capture limitations</h2><ul id="warnings"></ul></aside></main><script src="/viewer.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>NAIA Lens</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="page-header"><h1>NAIA Lens</h1><span>Saved model architecture</span></header>
+<main class="av" id="lens" data-theme="dark">
+  <div class="av-bar" role="toolbar" aria-label="Architecture detail">
+    <span class="av-label">Mode</span>
+    <div class="av-seg" id="view-mode"><button type="button" data-mode="single" aria-pressed="true">Single</button><button type="button" data-mode="compare" aria-pressed="false" disabled>Compare</button></div>
+    <select id="capture" aria-label="Saved architecture" disabled></select>
+    <fieldset id="compare-choices" hidden><legend class="sr-only">Saved captures to compare</legend></fieldset>
+    <div class="av-seg" id="compare-layout" hidden><button type="button" data-layout="side" aria-pressed="true">Side by side</button><button type="button" data-layout="overlay" aria-pressed="false">Overlay</button></div>
+    <span class="grow"></span>
+    <span class="av-label">Detail</span>
+    <div class="av-seg" id="levels">
+      <button type="button" data-level="0" aria-pressed="false" disabled>Pipeline</button>
+      <button type="button" data-level="1" aria-pressed="true" disabled>Modules</button>
+      <button type="button" data-level="2" aria-pressed="false" disabled>Blocks</button>
+      <button type="button" data-level="3" aria-pressed="false" disabled>Operations</button>
+    </div>
+    <button type="button" class="av-btn" id="expand" disabled>Expand all</button>
+    <button type="button" class="av-btn" id="collapse" disabled>Collapse</button>
+    <span class="grow"></span>
+    <label class="av-check" for="search">Find <input id="search" type="search" placeholder="Module, type, or path" disabled></label>
+    <button type="button" class="av-btn" id="search-next" disabled>Next</button>
+    <span class="av-note" id="search-status" role="status"></span>
+  </div>
+  <p class="av-status" id="mode" role="status" aria-live="polite">Loading saved architecture…</p>
+  <div class="av-main">
+    <section class="av-stage" aria-label="Architecture graph">
+      <div class="av-controls" role="toolbar" aria-label="View and playback">
+        <span class="av-label">View</span>
+        <button type="button" class="av-btn" id="zoom-in" aria-label="Zoom in" disabled>+</button>
+        <button type="button" class="av-btn" id="zoom-out" aria-label="Zoom out" disabled>−</button>
+        <button type="button" class="av-btn" id="fit" title="Fit graph (F or 0)" disabled>Fit</button>
+        <button type="button" class="av-btn" id="reset-layout" disabled>Reset layout</button>
+        <button type="button" class="av-btn" id="export-svg" disabled>Export SVG</button>
+        <label class="av-check">Edge glyphs <select id="edge-labels" aria-label="Tensor shape labels on saved edges"><option value="changes">Changes</option><option value="all">All</option><option value="off">Off</option></select></label>
+        <span class="sep" aria-hidden="true"></span>
+        <select id="playback-mode" aria-label="Playback evidence" disabled>
+          <option value="calls">Observed calls</option>
+          <option value="flow">Saved dependencies</option>
+        </select>
+        <select id="playback-capture" aria-label="Capture used for overlay playback" hidden></select>
+        <button type="button" class="av-btn" id="play" title="Play or pause (P)" disabled>▶ Play</button>
+        <button type="button" class="av-btn" id="step" title="Advance one step (.)" disabled>Step</button>
+        <button type="button" class="av-btn" id="reset-anim" title="Reset playback (R)" disabled>Reset</button>
+        <label class="av-check">Speed <input type="range" id="speed" min="0.25" max="3" step="0.25" value="1" aria-label="Playback speed"></label>
+        <span class="grow"></span>
+        <button type="button" class="av-btn" id="theme" aria-label="Switch to light theme">Light</button>
+      </div>
+      <div class="av-panel">
+        <svg id="graph" role="group" aria-label="Draggable model hierarchy and saved dependencies" tabindex="0">
+          <title>Model architecture</title>
+          <defs id="graph-defs"></defs>
+          <g id="world"><g id="boxes"></g><g id="edges"></g><g id="nodes"></g><g id="pulses"></g></g>
+        </svg>
+        <div id="comparison-panels" class="av-comparison-panels" hidden></div>
+      </div>
+      <div class="av-legend" aria-label="Graph legend">
+        <span><i class="legend-block"></i>Module / expanded group</span>
+        <span><i class="legend-edge traced"></i>Traced dependency</span>
+        <span><i class="legend-edge declared"></i>Declared dependency</span>
+        <span id="edge-status"></span>
+        <span id="comparison-legend" hidden></span>
+      </div>
+      <p class="av-note av-hint">Drag blocks or arrows · drag background to pan · scroll to zoom · double-click a block to expand</p>
+      <p class="av-note av-hint" id="playback-status" aria-live="polite">Playback is illustrative, not measured timing.</p>
+    </section>
+    <aside class="av-inspector" aria-label="Component inspector">
+      <h2 id="detail-title">Select a component</h2>
+      <p class="av-note" id="detail-summary">Inspect module paths, parameters, and captured tensor shapes.</p>
+      <div id="detail"></div>
+      <details class="av-warnings"><summary>Capture limits</summary><ul id="warnings"></ul></details>
+    </aside>
+  </div>
+</main>
+<script src="/viewer.js"></script>
+</body>
+</html>

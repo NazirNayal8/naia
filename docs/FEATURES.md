@@ -7,13 +7,27 @@
 `naia init --assistant <choice>` selects Codex, Claude, or both. Setup adds managed rules
 to root `AGENTS.md`, `CLAUDE.md`, or both, preserving existing text and updating older blocks.
 If no choice is recorded, setup returns an assistant-choice question. The choice is stored in
-`.lab/project.json`; both assistants share state, with no assigned lead. Existing
-projects can use `naia instructions install --assistant both`.
+`.lab/project.json`; both assistants share state, with no assigned lead. Already
+initialized NAIA projects can use `naia instructions install --assistant both`.
 
 Ask the assistant to read the rules, or start a new session. Codex's
 [instruction precedence](https://learn.chatgpt.com/docs/agent-configuration/agents-md)
 can override root `AGENTS.md`. NAIA warns about a nonempty root `AGENTS.override.md`
 but leaves it alone. Switching integrations does not delete installed files.
+
+For an existing project, the assistant reads instructions and inspection exclusions
+before discovery. First initialization collects bounded static evidence from permitted
+README files, scripts, and configuration. The assistant infers the goal, training and
+evaluation setup, and other context, then shows a summary with file references for
+you to confirm or correct. It asks only about missing or uncertain details.
+
+The scan is a helper, not a full repository audit or an embedded AI model. It skips
+common secret files, symlinks, and generated data. Repeat `--exclude PATH` with
+relative paths or globs to omit more files, or use `naia init --no-scan` to skip
+discovery. Evidence and assistant proposals are stored separately from confirmed
+answers in `.lab/project.json`.
+Proposed answers require explicit user confirmation; discovery never replaces
+confirmed settings.
 
 Onboarding records seven topics in `.lab/project.json`:
 
@@ -28,10 +42,10 @@ Onboarding records seven topics in `.lab/project.json`:
 | Governance | Approvals, documentation limits, retention, excluded paths. |
 
 New projects start with confirmed reporting and governance defaults: concise suite cards
-and the standard policy, with no exceptions or exclusions. The assistant asks about the
-other topics. Setup keeps custom answers. Launches require confirmed onboarding and a
-confirmed backend; changes require reconfirmation. NAIA does not convert configurations
-or create evaluators.
+and the standard policy, with no exceptions or exclusions. The assistant proposes the
+other topics from evidence where possible. Setup keeps custom answers. Launches require
+confirmed onboarding and a confirmed backend; changes require reconfirmation.
+NAIA does not convert configurations or create evaluators.
 
 The rules tell assistants to maintain review tasks, avoid unsolicited documents and
 per-suite scripts, and register, validate, dry-run, and show a plan before authorized
@@ -44,10 +58,11 @@ instructions, not a sandbox or authentication system. Keep credentials out of co
 Tasks have a title, goal, decision, owner, evidence, related-task IDs, and notes.
 You can create, assign, move to top, start, pause, resume, complete, or cancel them.
 States are `ready`, `active`, `paused`, `done`, and `cancelled`. Only one task can be active;
-it comes next, otherwise the first ready task does. Resume returns a paused task to ready.
-Related-task IDs do not enforce completion dependencies. Task-field editing, deletion,
-and reopening are not implemented. The browser hides done and cancelled tasks;
-the CLI can list all tasks.
+it comes next, otherwise the first ready task does. Resume makes a paused task active.
+Related-task IDs do not enforce completion dependencies. The browser supports editing,
+drag reordering, and recoverable removal; removed IDs remain reserved. It hides closed
+tasks from the queue and shows removed tasks in the archive. Reopening is not implemented.
+The CLI can list all tasks.
 
 ## Suites and results
 
@@ -67,7 +82,9 @@ It checks provenance, not scientific correctness.
 Suites are `approved` or `sealed`, separate from job states and result readiness.
 When all declared results are ready, NAIA queues one review task. Sealing requires
 user approval and blocks new training; evaluation and existing jobs can continue.
-Arbitrary status editing and reopening are not implemented.
+The browser can change workflow status or seal/reopen an approved suite. Display
+labels do not approve an experiment or launch work; sealed/shelved suites block
+new training. Existing approval and result fingerprints are preserved.
 
 ## Execution and environments
 
@@ -85,7 +102,7 @@ NAIA can run in the project environment or a separate management environment.
 Training/evaluation scripts need NAIA only if they call it. `command_python` supplies
 training `{python}`; `evaluation_python` can select a different interpreter. By default,
 training uses the interpreter running `naia suite launch`, and evaluation inherits it.
-NAIA does not discover a project environment automatically. Explicit paths stay explicit;
+NAIA does not automatically select or activate a project environment. Explicit paths stay explicit;
 command-prefix lists and per-command environment variables support wrappers.
 
 Slurm needs a shared `management_python` with NAIA installed. Training and
@@ -96,13 +113,19 @@ evaluation can have separate resources. Supported fields are
 ## Browser dashboard
 
 The dashboard opens at `http://127.0.0.1:8767`, with a selectable port, loopback binding,
-and a session token. You can start, pause, resume, or finish tasks with an optional note,
-and move ready tasks to top; view suite cards, lineage, and status; refresh results and
-queue missing reviews; inspect saved graphs and their suite/task links; and read context.
-There are no task-text editors, suite-status or launch controls, or context editors.
-Ask your assistant to create, assign, or cancel tasks and seal suites. Cards display
-Markdown source. Refresh is manual; browser result refresh does not reconcile scheduler
-state. Use `naia sync` for that.
+and a session token. It uses the local research UI's dark theme and three views:
+
+- Task queue: create/edit tasks, pack/unpack cards, drag to reorder, start/pause/resume,
+  complete with a note, and remove into a recoverable archive.
+- Suite graph: drag cards, pan/zoom, hide sealed suites, open rendered cards, and edit
+  workflow status or seal/reopen a suite.
+- Architecture: inspect saved graphs with the Lens canvas below.
+
+Refresh reads validated results and queues missing reviews; it never launches jobs.
+It does not query the scheduler—use `naia sync` for that. Project context remains
+onboarding data, not a separate browser tab. Markdown, code, and tables render in
+the card viewer; equations use a local MathJax installation when available
+(`NAIA_MATHJAX_ROOT`). No CDN is used.
 
 ## Analysis assignments
 
@@ -125,8 +148,10 @@ and checksum. Keep that file unchanged; revisions need a new graph and ID.
 Standalone `naia arch capture`, `validate`, and `view` work without project setup.
 The standalone viewer uses `http://127.0.0.1:8768`; the dashboard uses port `8767`.
 The browser reads saved graphs and does not run factories or capture training runs.
-Expand blocks, inspect module metadata and shapes, and play observed calls. Module
-enumeration records hierarchy; hooks record calls and shapes. Optional best-effort FX
+Drag nodes and arrow bends, pan/zoom, switch hierarchy levels, search, inspect module
+metadata and shapes, save layouts, export SVG, and play observed calls. Compare two or
+three registered captures side by side or as an overlay. Colors match the local viewer.
+Module enumeration records hierarchy; hooks record calls and shapes. Optional best-effort FX
 tracing adds supported data-flow edges. Hook order alone does not establish dependencies.
 
 Capture runs copies of the model and inputs in evaluation mode, without gradients.
@@ -138,7 +163,8 @@ Lens does not edit the model.
 
 | Location | Contents |
 | --- | --- |
-| `.lab/project.json` | Assistant selection, confirmed context, policies, execution backends. |
+| `.lab/project.json` | Assistant selection, discovery evidence, unconfirmed proposals, confirmed context, policies, execution backends. |
+| `.lab/archive.json` | Snapshots of removed tasks; original IDs remain reserved. |
 | `.lab/tasks.json` | Task queue and decision notes. |
 | `.lab/suites/<ID>/` | Registered definition and durable card. |
 | `.lab/state/registry.json` | Derived suite registry for the graph. |

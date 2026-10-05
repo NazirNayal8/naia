@@ -18,6 +18,8 @@ def parser():
     sub = p.add_subparsers(dest="command", required=True)
     init = sub.add_parser("init")
     init.add_argument("--assistant", choices=ASSISTANTS, help="Install NAIA rules for Codex, Claude, or both")
+    init.add_argument("--exclude", action="append", default=[], help="Do not inspect this relative path or glob (repeatable)")
+    init.add_argument("--no-scan", action="store_true", help="Skip initial repository discovery")
     sub.add_parser("doctor")
     sub.add_parser("policy")
     sub.add_parser("sync")
@@ -35,6 +37,15 @@ def parser():
     context = sub.add_parser("context").add_subparsers(dest="context_action", required=True)
     context.add_parser("show")
     context.add_parser("questions")
+    scan = context.add_parser("scan", help="Refresh bounded repository evidence for assistant-led onboarding")
+    scan.add_argument("--exclude", action="append", default=[])
+    proposal = context.add_parser("propose", help="Record an inferred setting for user confirmation")
+    proposal.add_argument("field")
+    proposal.add_argument("--value", required=True, help="JSON value, or @path/to/JSON")
+    proposal.add_argument("--evidence", action="append", required=True, help="Relative file[:line] supporting the proposal")
+    accept = context.add_parser("accept", help="Accept a proposed setting after user confirmation")
+    accept.add_argument("field")
+    accept.add_argument("--by", required=True)
     answer = context.add_parser("set")
     answer.add_argument("field")
     answer.add_argument("--value", required=True, help="JSON value, or @path/to/JSON")
@@ -104,13 +115,14 @@ def dispatch(args):
         print(POLICY_TEXT, end="")
         return None
     if args.command == "init":
-        context = project.initialize(args.assistant)
+        context = project.initialize(args.assistant, excluded_paths=args.exclude, scan=not args.no_scan)
         return {"project": str(project.root), "context": str(project.context_path),
                 "onboarding": context["onboarding"],
                 "assistants": context.get("assistants", {"selection": None, "instruction_files": []}),
                 "warnings": project.assistant_warnings(),
+                "discovery": context.get("discovery"),
                 "questions": project.questions(),
-                "assistant_action": "If no assistant is selected, ask Codex, Claude, or both and configure that integration. Apply built-in workflow/reporting defaults without asking the user to repeat them. Inspect the permitted repo, propose detected settings, and ask only about unresolved project choices or requested exceptions. Confirm project-specific settings and the backend before launching work."}
+                "assistant_action": "If needed, ask Codex, Claude, or both and configure that integration. Read existing instructions and respect inspection exclusions. For an existing project, use discovery evidence to infer goal, training, evaluation, configuration, and hardware; record proposals with file references and show one concise summary for confirmation or correction. Do not ask the user to describe settings already established by files or confirmed context. Ask only about missing, uncertain, or conflicting details. For a new project, ask the unresolved setup questions. Discovery never confirms assumptions or authorizes launches; confirm settings and the execution backend before launching."}
     if args.command == "demo":
         from .demo import install
         return install(project)
@@ -123,9 +135,16 @@ def dispatch(args):
         return registry.add(args.id, args.graph, args.title, suite=args.suite, task=args.task)
     if args.command == "context":
         if args.context_action == "show":
-            return project.load()
+            return project.context_view()
         if args.context_action == "questions":
             return project.questions()
+        if args.context_action == "scan":
+            return project.scan(excluded_paths=args.exclude)
+        if args.context_action == "propose":
+            value = read_json(args.value[1:]) if args.value.startswith("@") else json.loads(args.value)
+            return project.propose(args.field, value, evidence=args.evidence)
+        if args.context_action == "accept":
+            return project.accept_proposal(args.field, args.by)
         if args.context_action == "set":
             value = read_json(args.value[1:]) if args.value.startswith("@") else json.loads(args.value)
             return project.answer(args.field, value, confirmed=args.confirmed)

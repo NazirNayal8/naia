@@ -16,8 +16,8 @@
 
 ## Browser
 
-- [ ] Edit task text and approved suite/context settings.
-- [ ] Render suite Markdown instead of showing its source.
+- [x] Edit task text and suite workflow status.
+- [x] Render suite Markdown instead of showing its source.
 - [ ] Include scheduler reconciliation in refresh, not just saved results.
 
 See [features and limits](docs/FEATURES.md) for current behavior.
