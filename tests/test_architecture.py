@@ -70,7 +70,7 @@ class CaptureTest(unittest.TestCase):
         model = torch.nn.Sequential(torch.nn.Linear(4, 8), torch.nn.BatchNorm1d(8), torch.nn.ReLU(), torch.nn.Linear(8, 2))
         original = {k: v.clone() for k, v in model.state_dict().items()}
         rng = torch.get_rng_state().clone()
-        graph = capture(model, (torch.zeros(2, 4),))
+        graph = capture(model, (torch.zeros(2, 4),), trace=False)
         self.assertTrue(model.training)
         self.assertTrue(torch.equal(rng, torch.get_rng_state()))
         self.assertTrue(all(torch.equal(original[k], v) for k, v in model.state_dict().items()))

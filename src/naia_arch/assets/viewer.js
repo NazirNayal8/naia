@@ -16,7 +16,11 @@
     const shapes = [];
     function visit(item, depth = 0) {
       if (depth > 12 || shapes.length >= 8 || item == null) return;
-      if (Array.isArray(item)) { item.forEach(x => visit(x, depth + 1)); return; }
+      if (Array.isArray(item)) {
+        if (item.length && item.every(x => typeof x === 'number' || typeof x === 'string')) shapes.push(item.map(text).join(' × '));
+        else item.forEach(x => visit(x, depth + 1));
+        return;
+      }
       if (typeof item !== 'object') return;
       if (Array.isArray(item.shape)) {
         shapes.push(item.shape.length ? item.shape.map(text).join(' × ') : 'scalar');
@@ -25,6 +29,44 @@
     visit(value);
     return shapes.join(' · ');
   }
+
+  function firstShape(value, depth = 0) {
+    if (depth > 12 || !value || typeof value !== 'object') return null;
+    if (Array.isArray(value.shape)) return value.shape;
+    for (const child of Object.values(value)) { const found = firstShape(child, depth + 1); if (found) return found; }
+    return null;
+  }
+  function edgeShapeSummary(edge, sourceOutputs) {
+    // Runtime captures store the carried tensor shape directly, including []
+    // for a scalar. Legacy captures may instead store a metadata object.
+    if (Array.isArray(edge.shape)) return shapeSummary({ shape: edge.shape });
+    return shapeSummary(edge.shape ?? sourceOutputs);
+  }
+  function nodeType(node) {
+    const type = text(node.display_type || node.operation || node.type || 'component'), config = node.config || {};
+    if (/^linear$/i.test(type) && Number.isFinite(config.in_features) && Number.isFinite(config.out_features))
+      return type + ' ' + config.in_features + '→' + config.out_features;
+    if ((node.family === 'convolution' || /^conv[123]d$|^convolution\s*[123]d$/i.test(type)) && !/\d+\s*[×x]\s*\d+|\s\d+$/.test(type)
+      && (Array.isArray(config.kernel_size) || Number.isFinite(config.kernel_size)))
+      return type + ' ' + (Array.isArray(config.kernel_size) ? config.kernel_size.map(text).join('×') : config.kernel_size);
+    return type;
+  }
+  function nodeTitle(node) {
+    const label = text(node.label), type = nodeType(node);
+    if (node.kind === 'input' || node.type === 'placeholder') return label || 'Input';
+    if (node.kind === 'output' || node.type === 'output') return label || 'Output';
+    // ModuleList/Sequential indices are paths, not useful operation names.
+    if (!label || /^\d+$/.test(label) || label === node.module_path || label === node.id || label === node.operation || label === node.display_type || /^aten[.:]/.test(label))
+      return type;
+    return label;
+  }
+  function isBoundary(node) { return ['input', 'output'].includes(node.kind) || ['placeholder', 'output'].includes(node.type); }
+  function activeChildren(model, id, state) {
+    const children = id == null ? model.roots : model.children.get(id);
+    return state.projection === 'flow' && model.flowEdges.length
+      ? children.filter(child => model.flowNodes.has(child)) : children;
+  }
+  function activeEdges(model, state) { return state.projection === 'flow' ? model.flowEdges : model.edges; }
 
   function prepareGraph(data) {
     if (!data || data.schema_version !== 1 || !Array.isArray(data.nodes) || !data.nodes.length)
@@ -55,18 +97,35 @@
     model.edges = data.edges || []; model.events = data.events || [];
     if (!Array.isArray(model.edges) || !Array.isArray(model.events)) throw Error('Invalid saved execution evidence.');
     for (const e of model.edges) {
-      if (!e || !model.nodes.has(e.source) || !model.nodes.has(e.target) || !['traced', 'declared'].includes(e.evidence))
-        throw Error('Dependency arrows need saved traced or declared evidence.');
+      if (!e || !model.nodes.has(e.source) || !model.nodes.has(e.target) || !['observed', 'traced', 'declared'].includes(e.evidence))
+        throw Error('Dependency arrows need saved observed, traced or declared evidence.');
     }
     model.events.forEach((e, index) => {
       if (!e || !model.nodes.has(e.node)) throw Error('Observed call references an unknown component.');
       model.calls.get(e.node).push({ event: e, index });
     });
+    const runtime = data.dataflow?.engine === 'torch_dispatch' || data.capture_mode === 'runtime_observed';
+    model.flowEdges = runtime && model.edges.some(edge => edge.evidence === 'observed')
+      ? model.edges.filter(edge => edge.evidence !== 'traced') : model.edges;
+    model.flowNodes = new Set();
+    const include = id => {
+      if (model.nodes.has(id)) model.chains.get(id).forEach(ancestor => model.flowNodes.add(ancestor));
+    };
+    model.flowEdges.forEach(edge => { include(edge.source); include(edge.target); });
+    for (const id of data.dataflow?.nodes || []) include(id);
+    // Executed modules may have no tensor-changing operation (e.g. identity).
+    // Show recorded execution, but never create arrows from hook order.
+    for (const event of model.events) {
+      const node = model.nodes.get(event.node);
+      if (runtime || !(model.fxModules.get(node.module_path) || []).length) include(event.node);
+    }
     return model;
   }
 
   function expanded(model, id, state) {
-    if (!model.children.get(id).length) return false;
+    if (!activeChildren(model, id, state).length) return false;
+    // A collapsed model root must not swallow the recorded input/output glyphs.
+    if (state.projection === 'flow' && model.flowEdges.length && model.roots.includes(id)) return true;
     if (state.expand.has(id)) return state.expand.get(id);
     return state.granularity === 3 || model.chains.get(id).length - 1 < state.granularity;
   }
@@ -111,7 +170,7 @@
 
   function liftEdges(model, state) {
     const merged = new Map();
-    for (const edge of model.edges) {
+    for (const edge of activeEdges(model, state)) {
       const a = visibleOf(model, edge.source, state), b = visibleOf(model, edge.target, state);
       if (a === b && edge.source !== edge.target) continue;
       const key = JSON.stringify([a, b, edge.evidence, edge.kind || null, edge.comparison_id || null]);
@@ -123,17 +182,18 @@
 
   function layoutGraph(model, state) {
     function group(parent, kids) {
+      if (!kids.length) return { positions: new Map(), inner: new Map(), w: 0, h: 0 };
       const sizes = new Map(), inner = new Map(), pairs = [], seen = new Set();
       for (const id of kids) {
         if (expanded(model, id, state)) {
-          const sub = group(id, model.children.get(id));
+          const sub = group(id, activeChildren(model, id, state));
           inner.set(id, sub); sizes.set(id, { w: Math.max(240, sub.w + PAD * 2), h: sub.h + HEAD + PAD });
         } else {
           const n = model.nodes.get(id);
-          sizes.set(id, { w: Math.min(258, Math.max(156, text(n.label || id).length * 7 + 38)), h: 96 });
+          sizes.set(id, { w: Math.min(290, Math.max(174, nodeTitle(n).length * 7 + 38)), h: 112 });
         }
       }
-      for (const e of model.edges) {
+      for (const e of activeEdges(model, state)) {
         const a = childUnder(model, e.source, parent), b = childUnder(model, e.target, parent);
         const key = JSON.stringify([a, b]);
         if (a && b && a !== b && sizes.has(a) && sizes.has(b) && !seen.has(key)) {
@@ -187,7 +247,7 @@
       }));
       return { positions, inner, w: Math.max(0, x - COL_GAP), h: Math.max(0, bottom - top) };
     }
-    const tree = group(null, model.roots), boxes = new Map();
+    const tree = group(null, activeChildren(model, null, state)), boxes = new Map();
     function place(tree, ox, oy) {
       for (const [id, p] of tree.positions) {
         const offset = state.offsets.get(id) || [0, 0], container = tree.inner.has(id);
@@ -198,7 +258,7 @@
     }
     function grow(id) {
       const box = boxes.get(id); if (!box || !box.container) return;
-      for (const child of model.children.get(id)) {
+      for (const child of activeChildren(model, id, state)) {
         grow(child);
         const b = boxes.get(child); if (!b) continue;
         const right = Math.max(box.x + box.w, b.x + b.w + PAD), bottom = Math.max(box.y + box.h, b.y + b.h + PAD);
@@ -210,14 +270,100 @@
     return boxes;
   }
 
+  function edgeRoute(a, b, { obstacles = [], bend = null, offset = 0, lane = 0 } = {}) {
+    const sx = a.x + a.w, sy = a.y + a.h / 2 + offset, tx = b.x - 3, ty = b.y + b.h / 2 + offset;
+    const rects = obstacles.map(r => ({ left: r.x - 10, right: r.x + r.w + 10, top: r.y - 10, bottom: r.y + r.h + 10 }));
+    function hits(p, q, r) {
+      // Clip a segment against the padded obstacle; touching its outside edge is safe.
+      let lo = 0, hi = 1;
+      for (const [start, delta, min, max] of [[p[0], q[0] - p[0], r.left, r.right], [p[1], q[1] - p[1], r.top, r.bottom]]) {
+        if (!delta) { if (start <= min || start >= max) return false; }
+        else {
+          const u = (min - start) / delta, v = (max - start) / delta;
+          lo = Math.max(lo, Math.min(u, v)); hi = Math.min(hi, Math.max(u, v));
+          if (hi <= lo) return false;
+        }
+      }
+      return hi > lo;
+    }
+    const clear = (p, q) => !rects.some(r => hits(p, q, r));
+    const box = points => ({ x0: Math.min(...points.map(p => p[0])) - 8, y0: Math.min(...points.map(p => p[1])) - 20,
+      x1: Math.max(...points.map(p => p[0])) + 8, y1: Math.max(...points.map(p => p[1])) + 20 });
+    function cubic(p, c, d, q, t) {
+      const u = 1 - t;
+      return [0, 1].map(i => u * u * u * p[i] + 3 * u * u * t * c[i] + 3 * u * t * t * d[i] + t * t * t * q[i]);
+    }
+    const start = [sx, sy], end = [tx, ty];
+    let control;
+    if (a === b) {
+      control = [[sx + 100, sy - 90], [sx + 100, sy + 90], [sx, sy + 12]];
+      return { d: 'M ' + start.join(' ') + ' C ' + control.map(p => p.join(' ')).join(', '),
+        bounds: box([start, ...control]), label: [sx + 75, sy], routed: false };
+    }
+    else if (bend) {
+      const waypoint = [(sx + tx) / 2 + bend[0], (sy + ty) / 2 + bend[1]], k = 55;
+      const points = [start, [sx + k, sy], [waypoint[0] - k, waypoint[1]], waypoint,
+        [waypoint[0] + k, waypoint[1]], [tx - k, ty], end];
+      return { d: 'M ' + start.join(' ') + ' C ' + points.slice(1, 4).map(p => p.join(' ')).join(', ') +
+        ' C ' + points.slice(4).map(p => p.join(' ')).join(', '), bounds: box(points), label: waypoint, routed: false, manual: true };
+    } else {
+      const k = Math.max(36, Math.abs(tx - sx) * .5), dip = tx <= sx ? 52 : 0;
+      control = [[sx + k, sy + dip], [tx - k, ty + dip], end];
+    }
+    const samples = Array.from({ length: 33 }, (_, i) => cubic(start, ...control, i / 32));
+    const blocked = samples.some((p, i) => i && !clear(samples[i - 1], p));
+    if (!blocked && a !== b && tx > sx) return { d: 'M ' + start.join(' ') + ' C ' + control.map(p => p.join(' ')).join(', '),
+      bounds: box([start, ...control]), label: samples[16], routed: false };
+
+    // Keep the detour in gaps between columns, not over an intermediate block.
+    // Separate long arrows sharing a corridor, including comparison variants.
+    const margin = 24 + lane * 16, left = Math.min(sx, tx), right = Math.max(sx, tx);
+    const corridor = rects.filter(r => r.right >= left && r.left <= right);
+    const top = Math.min(a.y - 10, b.y - 10, ...corridor.map(r => r.top)) - margin;
+    const bottom = Math.max(a.y + a.h + 10, b.y + b.h + 10, ...corridor.map(r => r.bottom)) + margin;
+    const ys = [top, bottom].sort((u, v) => Math.abs(sy - u) + Math.abs(ty - u) - Math.abs(sy - v) - Math.abs(ty - v));
+    const exits = [...new Set([sx + 18, ...rects.map(r => r.right + 8)])]
+      .filter(x => x > sx && (tx <= sx || x < tx - 12) && clear(start, [x, sy])).sort((u, v) => u - v).slice(0, 8);
+    const entries = [...new Set([tx - 18, ...rects.map(r => r.left - 8)])]
+      .filter(x => x < tx && (tx <= sx || x > sx + 12) && clear([x, ty], end)).sort((u, v) => v - u).slice(0, 8);
+    for (const y of ys) for (const x0 of exits) for (const x1 of entries) {
+      const points = [start, [x0, sy], [x0, y], [x1, y], [x1, ty], end];
+      if (points.some((p, i) => i && !clear(points[i - 1], p))) continue;
+      let d = 'M ' + start.join(' ');
+      for (let i = 1; i < points.length - 1; i++) {
+        const p = points[i], prev = points[i - 1], next = points[i + 1];
+        const incoming = Math.hypot(p[0] - prev[0], p[1] - prev[1]), outgoing = Math.hypot(next[0] - p[0], next[1] - p[1]);
+        const r = Math.min(8, incoming / 2, outgoing / 2);
+        const before = incoming ? p.map((n, axis) => n + (prev[axis] - n) * r / incoming) : p;
+        const after = outgoing ? p.map((n, axis) => n + (next[axis] - n) * r / outgoing) : p;
+        d += ' L ' + before.join(' ') + ' Q ' + p.join(' ') + ' ' + after.join(' ');
+      }
+      d += ' L ' + end.join(' ');
+      return { d, points, bounds: box(points), label: [(x0 + x1) / 2, y - 10], routed: true };
+    }
+    // Overlapping user-dragged blocks can leave no clear corridor. Keep their
+    // recorded arrow visible and editable; never change its endpoints.
+    return { d: 'M ' + start.join(' ') + ' C ' + control.map(p => p.join(' ')).join(', '),
+      bounds: box([start, ...control]), label: samples[16], routed: false };
+  }
+
   function comparisonGraph(captures, playbackId) {
-    const byId = new Map(), maps = new Map(), edges = [], changes = new Map(), tones = [4, 5, 2];
+    const byId = new Map(), maps = new Map(), edges = [], changes = new Map(), flowIds = new Set(), tones = [4, 5, 2];
     const stable = value => JSON.stringify(value, (_key, v) => v && typeof v === 'object' && !Array.isArray(v)
       ? Object.fromEntries(Object.keys(v).sort().map(k => [k, v[k]])) : v);
     captures.forEach((capture, index) => {
-      const model = prepareGraph(capture.data), ids = new Map(); maps.set(capture.id, ids);
-      for (const n of capture.data.nodes) ids.set(n.id, 'compare:' + (n.evidence === 'traced' ? 'fx:' + n.id
-        : typeof n.module_path === 'string' ? 'module:' + n.module_path : 'id:' + n.id));
+      const model = prepareGraph(capture.data), ids = new Map(), occurrences = new Map(); maps.set(capture.id, ids);
+      for (const n of capture.data.nodes) {
+        let identity;
+        if (n.kind === 'operation' || /^op:/.test(n.id)) {
+          const scope = JSON.stringify([n.module_path ?? n.scope ?? '', n.operation || n.display_type || n.type]);
+          const occurrence = occurrences.get(scope) || 0; occurrences.set(scope, occurrence + 1);
+          identity = 'operation:' + scope + ':' + occurrence;
+        } else if (isBoundary(n)) identity = 'boundary:' + (n.kind || n.type) + ':' + n.id;
+        else identity = n.evidence === 'traced' ? 'fx:' + n.id
+          : typeof n.module_path === 'string' ? 'module:' + n.module_path : 'id:' + n.id;
+        ids.set(n.id, 'compare:' + identity);
+      }
       for (const n of capture.data.nodes) {
         const id = ids.get(n.id), parent = n.parent == null ? null : ids.get(n.parent);
         const calls = model.calls.get(n.id), outputs = n.outputs || (calls.length ? calls[calls.length - 1].event.outputs : null);
@@ -226,26 +372,29 @@
         if (!byId.has(id)) byId.set(id, { ...n, id, parent, comparison: [] });
         byId.get(id).comparison.push(variant);
         if (!changes.has(id)) changes.set(id, []);
-        changes.get(id).push({ type: n.type, parameters: n.parameters, outputs, parent,
+        changes.get(id).push({ type: n.type, display_type: n.display_type, family: n.family, shape_symbol: n.shape_symbol,
+          operation: n.operation, config: n.config, inputs: n.inputs, parameters: n.parameters, outputs, parent,
           shared_with: n.shared_with ? ids.get(n.shared_with) : null });
       }
       for (const e of capture.data.edges || []) edges.push({ ...e, source: ids.get(e.source), target: ids.get(e.target),
         comparison_id: capture.id, comparison_tone: tones[index % tones.length] });
+      for (const id of model.flowNodes) flowIds.add(ids.get(id));
     });
     for (const [id, node] of byId) {
       const records = changes.get(id);
-      node.comparison_changes = ['type', 'parameters', 'outputs', 'parent', 'shared_with']
+      node.comparison_changes = ['type', 'display_type', 'family', 'shape_symbol', 'operation', 'config', 'inputs', 'parameters', 'outputs', 'parent', 'shared_with']
         .filter(key => new Set(records.map(record => stable(record[key]))).size > 1);
       if (node.comparison.length < captures.length) node.comparison_changes.unshift('presence');
     }
     const playback = captures.find(capture => capture.id === playbackId) || captures[0];
     const events = (playback.data.events || []).map(event => ({ ...event, node: maps.get(playback.id).get(event.node) }));
-    return { data: { schema_version: 1, capture_mode: 'comparison', nodes: [...byId.values()], edges, events, warnings: [] }, maps };
+    return { data: { schema_version: 1, capture_mode: 'comparison', nodes: [...byId.values()], edges, events,
+      dataflow: { engine: 'comparison', nodes: [...flowIds], complete: captures.every(capture => capture.data.dataflow?.complete !== false) }, warnings: [] }, maps };
   }
 
   // Pure graph behavior can also be verified without a browser or PyTorch.
   if (typeof module === 'object' && module.exports) {
-    module.exports = { prepareGraph, shapeSummary, rankNodes, visibleOf, liftEdges, layoutGraph, comparisonGraph };
+    module.exports = { prepareGraph, shapeSummary, edgeShapeSummary, firstShape, nodeType, nodeTitle, activeChildren, rankNodes, visibleOf, liftEdges, layoutGraph, edgeRoute, comparisonGraph };
     return;
   }
 
@@ -254,8 +403,8 @@
   const integrated = ['/architecture', '/architecture/'].includes(location.pathname);
   const panelMode = integrated && new URLSearchParams(location.search).get('panel') === '1';
   const S = {
-    model: null, granularity: 1, expand: new Map(), offsets: new Map(), bends: new Map(),
-    boxes: new Map(), nodeEls: new Map(), edgeEls: new Map(), selected: null, selectedEdge: null,
+    model: null, granularity: 1, projection: 'flow', expand: new Map(), offsets: new Map(), bends: new Map(),
+    boxes: new Map(), nodeEls: new Map(), edgeEls: new Map(), routeBounds: [], selected: null, selectedEdge: null,
     camera: { cx: 0, cy: 0, scale: 1 }, drag: null, matches: [], matchIndex: -1,
     anim: { index: -1, playing: false, timer: null, epoch: 0, active: new Set(), rank: new Map(), stages: [] },
     currentId: null, library: [], graphs: new Map(), mode: 'single', comparisonLayout: 'side', compareIds: [],
@@ -266,18 +415,22 @@
     for (const char of JSON.stringify(data)) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
     return 'naia.lens.v1:' + id + ':' + (hash >>> 0).toString(16);
   }
+  function captureStatus(data) {
+    return text(data.capture_mode || 'saved architecture') + (data.dataflow?.complete === false ? ' · Partial capture' : '');
+  }
   function saveView() {
     if (!S.storageKey) return;
-    try { localStorage.setItem(S.storageKey, JSON.stringify({ granularity: S.granularity,
+    try { localStorage.setItem(S.storageKey, JSON.stringify({ granularity: S.granularity, projection: S.projection,
       expand: [...S.expand], offsets: [...S.offsets], bends: [...S.bends], theme: $('lens').dataset.theme,
       labels: $('edge-labels').value })); } catch (_error) { /* Storage can be unavailable in private sessions. */ }
   }
   function restoreView(id, data) {
     S.storageKey = storageKey(id, data); S.expand.clear(); S.offsets.clear(); S.bends.clear();
-    S.granularity = 1;
+    S.granularity = 1; S.projection = 'flow'; $('edge-labels').value = 'all';
     try {
       const saved = JSON.parse(localStorage.getItem(S.storageKey) || '{}');
       if (Number.isInteger(saved.granularity) && saved.granularity >= 0 && saved.granularity <= 3) S.granularity = saved.granularity;
+      if (['flow', 'hierarchy'].includes(saved.projection)) S.projection = saved.projection;
       for (const [key, value] of saved.expand || []) if (S.model.nodes.has(key) && typeof value === 'boolean') S.expand.set(key, value);
       for (const field of ['offsets', 'bends']) for (const [key, value] of saved[field] || [])
         if (typeof key === 'string' && Array.isArray(value) && value.length === 2 && value.every(n => Number.isFinite(n) && Math.abs(n) < 1e7)) S[field].set(key, value);
@@ -311,7 +464,9 @@
   }
   function tone(id) {
     const node = S.model.nodes.get(id);
-    const family = text(node.module_path || node.label || node.type).toLowerCase();
+    if (node.kind === 'input' || node.type === 'placeholder') return 4;
+    if (node.kind === 'output' || node.type === 'output') return 5;
+    const family = [node.family, node.display_type, node.operation, node.module_path, node.label, node.type].map(text).join(' ').toLowerCase();
     if (/encoder|embedding|conv/.test(family)) return 0;
     if (/projector|projection|linear/.test(family)) return 1;
     if (/conditioning|action/.test(family)) return 2;
@@ -325,34 +480,39 @@
     const n = S.model.nodes.get(id), calls = S.model.calls.get(id);
     return n.outputs || (calls.length ? calls[calls.length - 1].event.outputs : null);
   }
+  function lastInput(id) {
+    const n = S.model.nodes.get(id), calls = S.model.calls.get(id);
+    return n.inputs || (calls.length ? calls[calls.length - 1].event.inputs : null);
+  }
   function nodeShape(node, box) {
-    let type = text(node.type);
+    let type = nodeType(node);
     if (type === 'call_module' && node.module_path) {
       const structural = [...S.model.nodes.values()].find(n => n.evidence !== 'traced' && n.module_path === node.module_path);
-      if (structural) type = text(structural.type);
+      if (structural) type = nodeType(structural);
     }
-    const w = box.w, h = box.h;
-    if (/conv\d[d]?/i.test(type)) return svgEl('path', { d: 'M0 0 L' + w + ' ' + h * .18 + ' L' + w + ' ' + h * .82 + ' L0 ' + h + ' Z', class: 'av-shape' });
-    if (/linear/i.test(type)) {
-      const firstShape = (value, depth = 0) => {
-        if (depth > 12 || !value || typeof value !== 'object') return null;
-        if (Array.isArray(value.shape)) return value.shape;
-        for (const child of Object.values(value)) { const found = firstShape(child, depth + 1); if (found) return found; }
-        return null;
-      };
-      const calls = S.model.calls.get(node.id), input = calls.length ? firstShape(calls[calls.length - 1].event.inputs) : null;
-      const output = firstShape(lastOutput(node.id)), a = input?.at(-1), b = output?.at(-1);
-      if (Number.isFinite(a) && Number.isFinite(b) && a !== b) return svgEl('path', { d: b > a
+    const w = box.w, h = box.h, symbol = text(node.shape_symbol).toLowerCase(), family = text(node.family).toLowerCase();
+    if (symbol === 'encoder') return svgEl('path', { d: 'M0 0 L' + w + ' ' + h * .18 + ' L' + w + ' ' + h * .82 + ' L0 ' + h + ' Z', class: 'av-shape' });
+    if (symbol === 'parallelogram') return svgEl('polygon', { points: '20,0 ' + w + ',0 ' + (w - 20) + ',' + h + ' 0,' + h, class: 'av-shape' });
+    if (symbol === 'trapezoid') return svgEl('polygon', { points: '18,0 ' + (w - 18) + ',0 ' + w + ',' + h + ' 0,' + h, class: 'av-shape' });
+    if (['linear', 'projection'].includes(family) || /linear|addmm|\.mm\b/i.test(type) || ['expand', 'contract', 'projector'].includes(symbol)) {
+      const input = firstShape(lastInput(node.id)), output = firstShape(lastOutput(node.id)), a = input?.at(-1), b = output?.at(-1);
+      if (['expand', 'contract'].includes(symbol) || (Number.isFinite(a) && Number.isFinite(b) && a !== b)) return svgEl('path', { d: (symbol === 'expand' || (symbol !== 'contract' && b > a))
         ? 'M0 ' + h * .2 + ' L' + w + ' 0 L' + w + ' ' + h + ' L0 ' + h * .8 + ' Z'
         : 'M0 0 L' + w + ' ' + h * .2 + ' L' + w + ' ' + h * .8 + ' L0 ' + h + ' Z', class: 'av-shape' });
-      return svgEl('path', { d: 'M0 0 L' + (w - 16) + ' 0 L' + w + ' ' + h / 2 + ' L' + (w - 16) + ' ' + h + ' L0 ' + h + ' L16 ' + h / 2 + ' Z', class: 'av-shape' });
+      return svgEl('rect', { width: w, height: h, rx: 10, class: 'av-shape' });
     }
-    if (/attention/i.test(type)) return svgEl('ellipse', { cx: w / 2, cy: h / 2, rx: w / 2, ry: h / 2, class: 'av-shape' });
+    if (symbol === 'diamond' || symbol === 'loss') return svgEl('polygon', { points: w / 2 + ',0 ' + w + ',' + h / 2 + ' ' + w / 2 + ',' + h + ' 0,' + h / 2, class: 'av-shape' });
+    if (symbol === 'circle' || symbol === 'ellipse' || (!symbol && /attention/i.test(type))) return svgEl('ellipse', { cx: w / 2, cy: h / 2, rx: w / 2, ry: h / 2, class: 'av-shape' });
+    if (symbol === 'pill' || symbol === 'capsule') return svgEl('rect', { width: w, height: h, rx: h / 2, class: 'av-shape' });
+    if (isBoundary(node) || symbol === 'input' || symbol === 'output' || symbol === 'hexagon')
+      return svgEl('polygon', { points: '14,0 ' + (box.w - 14) + ',0 ' + box.w + ',' + box.h / 2 + ' ' + (box.w - 14) + ',' + box.h + ' 14,' + box.h + ' 0,' + box.h / 2, class: 'av-shape' });
+    if (/norm|relu|gelu|silu|sigmoid|softmax/i.test(type))
+      return svgEl('rect', { width: box.w, height: box.h, rx: 26, class: 'av-shape' });
+    if (!symbol && /conv\d[d]?/i.test(type)) return svgEl('path', { d: 'M0 0 L' + w + ' ' + h * .18 + ' L' + w + ' ' + h * .82 + ' L0 ' + h + ' Z', class: 'av-shape' });
+    if (symbol === 'rectangle') return svgEl('rect', { width: w, height: h, rx: 10, class: 'av-shape' });
     if (node.type === 'call_function' || node.type === 'call_method')
       return svgEl('ellipse', { cx: box.w / 2, cy: box.h / 2, rx: box.w / 2, ry: box.h / 2, class: 'av-shape' });
-    if (node.type === 'placeholder' || node.type === 'output')
-      return svgEl('polygon', { points: '14,0 ' + (box.w - 14) + ',0 ' + box.w + ',' + box.h / 2 + ' ' + (box.w - 14) + ',' + box.h + ' 14,' + box.h + ' 0,' + box.h / 2, class: 'av-shape' });
-    return svgEl('rect', { width: box.w, height: box.h, rx: /norm|relu|gelu|silu/i.test(text(node.type)) ? 24 : 10, class: 'av-shape' });
+    return svgEl('rect', { width: box.w, height: box.h, rx: 10, class: 'av-shape' });
   }
   function hookNode(group, id) {
     group.addEventListener('pointerdown', event => {
@@ -369,28 +529,31 @@
     group.addEventListener('focus', () => select(id, false));
   }
   function drawNode(id, box) {
-    const node = S.model.nodes.get(id);
+    const node = S.model.nodes.get(id), title = nodeTitle(node), type = nodeType(node);
     const group = svgEl('g', { class: 'av-node tone-' + tone(id), transform: 'translate(' + box.x + ' ' + box.y + ')',
-      tabindex: 0, role: 'button', 'aria-label': text(node.label || id) + ', ' + text(node.type || 'component'),
+      tabindex: 0, role: 'button', 'aria-label': title + ', ' + type,
       'data-node': id });
-    group.append(svgEl('title', {}, text(node.label || id) + '\n' + text(node.module_path || id)));
+    group.append(svgEl('title', {}, title + '\n' + text(node.module_path || id) + '\n' +
+      (shapeSummary(lastInput(id)) || '—') + ' → ' + (shapeSummary(lastOutput(id)) || '—')));
     if (box.container) {
       group.append(svgEl('rect', { width: box.w, height: box.h, rx: 12, class: 'av-box' }));
       group.append(svgEl('rect', { width: box.w, height: HEAD, rx: 12, fill: 'transparent', class: 'av-box-head' }));
-      group.append(svgEl('text', { x: 15, y: 23, class: 'av-box-title' }, short(node.label || id, 40)));
+      group.append(svgEl('text', { x: 15, y: 23, class: 'av-box-title' }, short(title, 40)));
       group.append(svgEl('text', { x: 15, y: 41, class: 'av-box-sub' },
-        short(node.type || 'module', 28) + ' · ' + S.model.children.get(id).length + ' children'));
+        short(node.module_path || type, 28) + ' · ' + activeChildren(S.model, id, S).length + ' children'));
     } else {
       group.append(nodeShape(node, box));
-      group.append(svgEl('text', { x: 14, y: 25, class: 'av-title' }, short(node.label || id, Math.floor((box.w - 32) / 7))));
-      group.append(svgEl('text', { x: 14, y: 44, class: 'av-badge' }, short(node.type || node.evidence || 'component', 27)));
-      const shape = shapeSummary(lastOutput(id));
-      group.append(svgEl('text', { x: 14, y: 65, class: 'av-size' }, short(shape || (node.parameters != null ? count(node.parameters) + ' params' : ''), 31)));
+      group.append(svgEl('text', { x: 14, y: 25, class: 'av-title' }, short(title, Math.floor((box.w - 32) / 7))));
+      group.append(svgEl('text', { x: 14, y: 44, class: 'av-badge' }, short(title !== type ? type : node.operation || node.module_path || node.kind || type, 32)));
+      const input = shapeSummary(lastInput(id)), output = shapeSummary(lastOutput(id));
+      group.append(svgEl('text', { x: 14, y: 65, class: 'av-size' }, short(input ? 'in  ' + input : '', 36)));
+      group.append(svgEl('text', { x: 14, y: 83, class: 'av-size' }, short(output ? 'out ' + output : '', 36)));
       const calls = S.model.calls.get(id).length;
-      group.append(svgEl('text', { x: 14, y: 83, class: 'av-badge' },
-        calls ? calls + ' observed call' + (calls === 1 ? '' : 's') : node.evidence === 'traced' ? 'FX traced' : 'structure'));
+      const evidence = node.evidence === 'observed' ? 'runtime observed' : node.evidence === 'traced' ? 'FX traced'
+        : node.evidence === 'declared' ? 'declared' : calls ? calls + ' observed call' + (calls === 1 ? '' : 's') : 'structure';
+      group.append(svgEl('text', { x: 14, y: 102, class: 'av-badge' }, short(evidence + (node.parameters != null ? ' · ' + count(node.parameters) + ' params' : ''), 37)));
     }
-    if (S.model.children.get(id).length) {
+    if (activeChildren(S.model, id, S).length && !(S.projection === 'flow' && S.model.flowEdges.length && S.model.roots.includes(id))) {
       const toggleEl = svgEl('g', { class: 'av-toggle', transform: 'translate(' + (box.w - 17) + ' 17)' });
       toggleEl.append(svgEl('circle', { r: 9 }), svgEl('text', { x: 0, y: 4, 'text-anchor': 'middle' }, box.container ? '−' : '+'));
       toggleEl.addEventListener('pointerdown', event => event.stopPropagation());
@@ -406,25 +569,21 @@
     hookNode(group, id); S.nodeEls.set(id, group);
     (box.container ? $('boxes') : $('nodes')).append(group);
   }
-  function edgePath(a, b, bend, offset = 0) {
-    const sx = a.x + a.w, sy = a.y + a.h / 2 + offset, tx = b.x - 3, ty = b.y + b.h / 2 + offset;
-    if (a === b) return 'M ' + sx + ' ' + sy + ' C ' + (sx + 100) + ' ' + (sy - 90) + ', ' + (sx + 100) + ' ' + (sy + 90) + ', ' + sx + ' ' + (sy + 12);
-    if (bend) {
-      const wx = (sx + tx) / 2 + bend[0], wy = (sy + ty) / 2 + bend[1], k = 55;
-      return 'M ' + sx + ' ' + sy + ' C ' + (sx + k) + ' ' + sy + ', ' + (wx - k) + ' ' + wy + ', ' + wx + ' ' + wy +
-        ' C ' + (wx + k) + ' ' + wy + ', ' + (tx - k) + ' ' + ty + ', ' + tx + ' ' + ty;
-    }
-    const k = Math.max(36, Math.abs(tx - sx) * .5), dip = tx <= sx ? 52 : 0;
-    return 'M ' + sx + ' ' + sy + ' C ' + (sx + k) + ' ' + (sy + dip) + ', ' + (tx - k) + ' ' + (ty + dip) + ', ' + tx + ' ' + ty;
-  }
   function drawEdges() {
-    $('edges').replaceChildren(); S.edgeEls.clear();
+    $('edges').replaceChildren(); S.edgeEls.clear(); S.routeBounds = [];
     const lifted = liftEdges(S.model, S), parallel = new Map();
+    let corridorLane = 0;
     for (const edge of lifted) {
       const a = S.boxes.get(edge.a), b = S.boxes.get(edge.b); if (!a || !b) continue;
       const pair = JSON.stringify([edge.a, edge.b]), lane = parallel.get(pair) || 0;
       parallel.set(pair, lane + 1);
-      const d = edgePath(a, b, S.bends.get(edge.key), lane * 10);
+      const ownership = new Set([...S.model.chains.get(edge.a), ...S.model.chains.get(edge.b)]);
+      const obstacles = [...S.boxes].flatMap(([id, box]) => !ownership.has(id) ? [box]
+        : box.container ? [{ ...box, h: HEAD }] : []);
+      const route = edgeRoute(a, b, { obstacles, bend: S.bends.get(edge.key), offset: lane * 10, lane: corridorLane });
+      if (route.routed) corridorLane++;
+      S.routeBounds.push(route.bounds);
+      const d = route.d, labelX = route.label[0], labelY = route.label[1] + (route.routed ? 0 : 17);
       const variant = S.mode === 'compare' ? edge.members[0].comparison_tone : null;
       const marker = variant == null ? edge.evidence : 'compare-' + variant;
       const path = svgEl('path', { d, class: 'av-edge ' + edge.evidence + (variant == null ? '' : ' tone-' + variant), 'marker-end': 'url(#arrow-' + marker + ')' });
@@ -438,20 +597,20 @@
       hit.addEventListener('keydown', event => { if (event.key === 'Enter') selectEdge(edge); });
       const title = svgEl('title', {}, edge.evidence + ': ' + edge.members.map(e => e.source + ' → ' + e.target).join('\n'));
       path.append(title); $('edges').append(path, hit);
-      S.edgeEls.set(edge.key, { edge, path });
+      S.edgeEls.set(edge.key, { edge, path, route });
       if (edge.members.length > 1) {
-        $('edges').append(svgEl('text', { x: (a.x + a.w + b.x) / 2, y: (a.y + a.h / 2 + b.y + b.h / 2) / 2 - 8, class: 'av-elabel' }, '×' + edge.members.length));
+        $('edges').append(svgEl('text', { x: labelX, y: labelY - 16, 'text-anchor': 'middle', class: 'av-elabel' }, '×' + edge.members.length));
       }
-      const shape = shapeSummary(edge.members[0].shape || S.model.nodes.get(edge.members[0].source).outputs);
+      const shape = [...new Set(edge.members.map(member => edgeShapeSummary(member, S.model.nodes.get(member.source).outputs)).filter(Boolean))].join(' · ');
       const sourceShape = shapeSummary(S.model.nodes.get(edge.members[0].source).outputs);
       const targetShape = shapeSummary(S.model.nodes.get(edge.members[0].target).outputs);
       if (shape && ($('edge-labels').value === 'all' || ($('edge-labels').value === 'changes' && sourceShape !== targetShape)))
-        $('edges').append(svgEl('text', { x: (a.x + a.w + b.x) / 2, y: (a.y + a.h / 2 + b.y + b.h / 2) / 2 + 17, 'text-anchor': 'middle', class: 'av-elabel' }, short(shape, 36)));
+        $('edges').append(svgEl('text', { x: labelX, y: labelY, 'text-anchor': 'middle', class: 'av-elabel' }, short(shape, 36)));
     }
-    const shown = lifted.reduce((sum, e) => sum + e.members.length, 0), hidden = S.model.edges.length - shown;
-    $('edge-status').textContent = S.model.edges.length
-      ? S.model.edges.length + ' saved dependencies' + (hidden ? ' · ' + hidden + ' inside collapsed blocks' : '')
-      : 'No dependency edges in this capture';
+    const edges = activeEdges(S.model, S), shown = lifted.reduce((sum, e) => sum + e.members.length, 0), hidden = edges.length - shown;
+    $('edge-status').textContent = edges.length
+      ? edges.length + ' saved dependencies' + (hidden ? ' · ' + hidden + ' inside collapsed blocks' : '')
+      : 'No recorded dataflow. Showing module ownership only.';
   }
   function renderSelection() {
     for (const [id, el] of S.nodeEls) {
@@ -471,13 +630,17 @@
     for (const [id, box] of S.boxes) if (!box.container) drawNode(id, box);
     drawEdges(); renderSelection();
     for (const button of $('levels').querySelectorAll('button')) button.setAttribute('aria-pressed', String(Number(button.dataset.level) === S.granularity));
+    for (const button of $('projection').querySelectorAll('button')) button.setAttribute('aria-pressed', String(button.dataset.projection === S.projection));
+    $('flow-status').hidden = S.projection !== 'flow' || Boolean(S.model.flowEdges.length);
     if (refit) fit(); else applyCamera();
     paintActiveEdges(false);
   }
   function bounds() {
     const boxes = [...S.boxes.values()];
-    return { x0: Math.min(...boxes.map(b => b.x)), y0: Math.min(...boxes.map(b => b.y)),
-      x1: Math.max(...boxes.map(b => b.x + b.w)), y1: Math.max(...boxes.map(b => b.y + b.h)) };
+    return { x0: Math.min(...boxes.map(b => b.x), ...S.routeBounds.map(b => b.x0)),
+      y0: Math.min(...boxes.map(b => b.y), ...S.routeBounds.map(b => b.y0)),
+      x1: Math.max(...boxes.map(b => b.x + b.w), ...S.routeBounds.map(b => b.x1)),
+      y1: Math.max(...boxes.map(b => b.y + b.h), ...S.routeBounds.map(b => b.y1)) };
   }
   function viewport() {
     const r = svg.getBoundingClientRect(); return { w: r.width || 800, h: r.height || 520 };
@@ -513,12 +676,17 @@
     S.camera.scale = Math.max(.65, S.camera.scale); applyCamera();
   }
   function toggle(id) {
-    if (!S.model.children.get(id).length) { select(id); return; }
+    if (!activeChildren(S.model, id, S).length || (S.projection === 'flow' && S.model.flowEdges.length && S.model.roots.includes(id))) { select(id); return; }
     pause(); S.expand.set(id, !expanded(S.model, id, S)); rebuild(true); select(id, false); saveView();
   }
   function setLevel(level) {
     pause(); S.granularity = Math.max(0, Math.min(3, level)); S.expand.clear();
     panelControl('level', S.granularity); rebuild(true); saveView();
+  }
+  function setProjection(projection) {
+    if (!['flow', 'hierarchy'].includes(projection)) return;
+    pause(); S.projection = projection; S.expand.clear();
+    panelControl('projection', projection); rebuild(true); search(); saveView();
   }
   function addRow(table, key, value) {
     const row = element('tr'); row.append(element('th', key), element('td', value)); table.append(row);
@@ -539,22 +707,30 @@
   }
   function inspectNode(id) {
     const node = S.model.nodes.get(id), calls = S.model.calls.get(id), detail = $('detail');
-    $('detail-title').textContent = text(node.label || id);
-    $('detail-summary').textContent = text(node.type || 'component') + ' · ' + text(node.evidence || 'structural');
+    $('detail-title').textContent = nodeTitle(node);
+    $('detail-summary').textContent = nodeType(node) + ' · ' + text(node.evidence || 'structural');
     detail.replaceChildren();
     const table = element('table', undefined, 'av-kv');
     addRow(table, 'ID', S.mode === 'compare' && node.comparison ? node.comparison[0].node.id : node.id);
     addRow(table, 'Path', node.module_path == null ? '—' : node.module_path || '(model root)');
+    if (node.label && node.label !== nodeTitle(node)) addRow(table, 'Name', node.label);
+    if (node.operation) addRow(table, 'Operation', node.operation);
+    if (node.schema) addRow(table, 'Schema', node.schema);
     addRow(table, 'Parameters', node.parameters == null ? '—' : count(node.parameters));
+    addRow(table, 'Inputs', shapeSummary(lastInput(id)) || '—');
     addRow(table, 'Outputs', shapeSummary(lastOutput(id)) || '—');
     if (node.shared_with) addRow(table, 'Shared with', node.shared_with);
     detail.append(table);
+    if (node.config && Object.keys(node.config).length) detail.append(element('h3', 'Recorded configuration'), jsonBlock(node.config));
+    if (node.annotations) detail.append(element('h3', 'Declared annotations'), jsonBlock(node.annotations));
     if (S.mode === 'compare' && node.comparison) {
       detail.append(element('h3', 'Captured differences'));
       detail.append(element('p', node.comparison_changes.length ? node.comparison_changes.join(', ') : 'Matching recorded metadata', 'av-note'));
       for (const variant of node.comparison) {
         const card = element('div', undefined, 'av-variant tone-' + variant.tone);
-        card.append(element('strong', variant.title), jsonBlock({ type: variant.node.type, parameters: variant.node.parameters,
+        card.append(element('strong', variant.title), jsonBlock({ type: variant.node.type, display_type: variant.node.display_type,
+          family: variant.node.family, shape_symbol: variant.node.shape_symbol, operation: variant.node.operation,
+          config: variant.node.config, inputs: variant.node.inputs, parameters: variant.node.parameters,
           outputs: variant.outputs, parent: variant.node.parent, observed_calls: variant.observed_calls }));
         detail.append(card);
       }
@@ -564,8 +740,9 @@
       detail.append(element('h3', 'Children'));
       const list = element('div');
       for (const child of children) {
-        const button = element('button', text(S.model.nodes.get(child).label || child), 'av-link');
+        const button = element('button', nodeTitle(S.model.nodes.get(child)), 'av-link');
         button.type = 'button'; button.addEventListener('click', () => {
+          if (S.projection === 'flow' && S.model.flowEdges.length && !S.model.flowNodes.has(child)) setProjection('hierarchy');
           S.model.chains.get(child).slice(0, -1).forEach(ancestor => S.expand.set(ancestor, true));
           rebuild(); select(child);
         });
@@ -589,7 +766,8 @@
   }
   function search() {
     const query = $('search').value.trim().toLowerCase();
-    S.matches = query ? [...S.model.nodes.values()].filter(n => [n.id, n.label, n.type, n.module_path].some(v => text(v).toLowerCase().includes(query))).map(n => n.id) : [];
+    S.matches = query ? [...S.model.nodes.values()].filter(n => (S.projection !== 'flow' || !S.model.flowEdges.length || S.model.flowNodes.has(n.id))
+      && [n.id, n.label, n.type, n.display_type, n.family, n.operation, n.module_path].some(v => text(v).toLowerCase().includes(query))).map(n => n.id) : [];
     S.matchIndex = -1; $('search-status').textContent = query ? S.matches.length + ' matches' : '';
     $('search-next').disabled = !S.matches.length; renderSelection();
     panelControl('search', $('search').value);
@@ -698,7 +876,7 @@
     });
     // Keep marker identities so exported arrows remain connected to their definitions.
     copy.querySelectorAll('marker').forEach((marker, index) => marker.id = svg.querySelectorAll('marker')[index].id);
-    for (const hit of copy.querySelectorAll('[aria-label="traced dependency"],[aria-label="declared dependency"]')) hit.remove();
+    for (const hit of copy.querySelectorAll('[aria-label="observed dependency"],[aria-label="traced dependency"],[aria-label="declared dependency"]')) hit.remove();
     const b = bounds(), width = b.x1 - b.x0 + 100, height = b.y1 - b.y0 + 100;
     copy.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
     copy.setAttribute('viewBox', [b.x0 - 50, b.y0 - 50, width, height].join(' '));
@@ -716,7 +894,7 @@
     pause(); S.model = prepareGraph(data); S.selected = null; S.selectedEdge = null;
     S.matches = []; S.matchIndex = -1; S.anim.index = -1; S.anim.active.clear();
     restoreView(key, S.mode === 'compare' ? { ...data, events: [] } : data);
-    const edges = S.model.edges.filter(edge => !edge.comparison_id || edge.comparison_id === S.playbackId);
+    const edges = S.model.flowEdges.filter(edge => !edge.comparison_id || edge.comparison_id === S.playbackId);
     const ids = [...new Set(edges.flatMap(edge => [edge.source, edge.target]))];
     S.anim.rank = rankNodes(ids, edges.map(edge => [edge.source, edge.target]));
     S.anim.stages = [...new Set(S.anim.rank.values())].sort((a, b) => a - b);
@@ -724,9 +902,9 @@
     const hasEdges = sideBySide() ? S.compareCaptures.some(capture => (capture.data.edges || []).length) : edges.length;
     $('playback-mode').querySelector('[value="calls"]').disabled = !hasCalls;
     $('playback-mode').querySelector('[value="flow"]').disabled = !hasEdges;
-    if ($('playback-mode').value === 'calls' && !hasCalls) $('playback-mode').value = 'flow';
-    if ($('playback-mode').value === 'flow' && !hasEdges && hasCalls) $('playback-mode').value = 'calls';
+    $('playback-mode').value = hasEdges ? 'flow' : 'calls';
     $('warnings').replaceChildren(element('li', 'Hierarchy shows module ownership. Observed call order does not establish tensor dependencies.'));
+    if (data.dataflow?.complete === false) $('warnings').append(element('li', 'Recorded dataflow is partial. Some dependencies were not captured.'));
     for (const warning of data.warnings || []) $('warnings').append(element('li', warning));
     updatePlaybackControls(); rebuild(true); select(S.model.roots[0], false);
   }
@@ -746,7 +924,7 @@
     svg.toggleAttribute('hidden', sideBySide()); $('comparison-panels').hidden = !sideBySide();
   }
   function syncPanel(frame) {
-    for (const [action, value] of [['level', S.granularity], ['theme', $('lens').dataset.theme], ['speed', Number($('speed').value)],
+    for (const [action, value] of [['projection', S.projection], ['level', S.granularity], ['theme', $('lens').dataset.theme], ['speed', Number($('speed').value)],
       ['labels', $('edge-labels').value], ['playback-mode', $('playback-mode').value]])
       frame.contentWindow.postMessage({ type: 'naia-lens-control', action, value }, location.origin);
   }
@@ -762,7 +940,7 @@
       syncComparisonToolbar();
       if (S.mode === 'single') {
         S.compareMaps.clear(); S.playbackId = null; setModel(loaded[0].data, S.currentId);
-        $('mode').textContent = text(loaded[0].data.capture_mode || 'saved architecture') + ' · ' + S.model.nodes.size + ' components · ' + S.model.edges.length + ' saved dependencies';
+        $('mode').textContent = captureStatus(loaded[0].data) + ' · ' + S.model.nodes.size + ' components · ' + S.model.edges.length + ' saved dependencies';
         return;
       }
       if (!ids.includes(S.playbackId)) S.playbackId = ids[0];
@@ -771,7 +949,8 @@
       $('playback-capture').value = S.playbackId;
       const comparison = comparisonGraph(loaded, S.playbackId); S.compareMaps = comparison.maps;
       setModel(comparison.data, 'compare:' + JSON.stringify(ids));
-      $('mode').textContent = loaded.length + ' saved captures · ' + (sideBySide() ? 'independent hierarchies and call sequences' : 'overlay aligns module paths, then component IDs');
+      $('mode').textContent = loaded.length + ' saved captures' + (comparison.data.dataflow.complete ? '' : ' · Partial capture') +
+        ' · ' + (sideBySide() ? 'independent hierarchies and call sequences' : 'overlay aligns module paths, then component IDs');
       $('warnings').append(element('li', 'Comparison highlights recorded metadata differences. Overlay playback uses the selected capture.'));
       loaded.forEach((capture, index) => {
         const legend = element('span'); legend.append(element('i', undefined, 'av-comparison-dot tone-' + [4, 5, 2][index % 3]), element('span', capture.title));
@@ -822,6 +1001,7 @@
     if (panelMode && event.source === parent && event.data.type === 'naia-lens-control' && S.model) {
       const { action, value } = event.data;
       if (action === 'level' && Number.isInteger(value)) setLevel(value);
+      else if (action === 'projection' && ['flow', 'hierarchy'].includes(value)) setProjection(value);
       else if (action === 'theme' && ['dark', 'light'].includes(value)) { setTheme(value); saveView(); }
       else if (action === 'zoom' && Number.isFinite(value) && value > 0) zoomBy(Math.max(.5, Math.min(2, value)));
       else if (action === 'fit') fit();
@@ -873,6 +1053,7 @@
   function endDrag() { S.drag = null; svg.classList.remove('panning'); for (const el of S.nodeEls.values()) el.classList.remove('dragging'); saveView(); }
   svg.addEventListener('pointerup', endDrag); svg.addEventListener('pointercancel', endDrag);
   $('levels').addEventListener('click', event => { const button = event.target.closest('[data-level]'); if (button && S.model) setLevel(Number(button.dataset.level)); });
+  $('projection').addEventListener('click', event => { const button = event.target.closest('[data-projection]'); if (button && S.model) setProjection(button.dataset.projection); });
   $('expand').addEventListener('click', () => setLevel(3));
   $('collapse').addEventListener('click', () => setLevel(0));
   $('fit').addEventListener('click', fit);
@@ -936,7 +1117,7 @@
     const data = await response.json();
     if (!response.ok) throw Error(data.error || 'Unable to load the saved architecture.');
     S.currentId = id || 'standalone'; S.graphs.set(S.currentId, data);
-    for (const evidence of ['traced', 'declared', 'compare-4', 'compare-5', 'compare-2']) {
+    for (const evidence of ['observed', 'traced', 'declared', 'compare-4', 'compare-5', 'compare-2']) {
       const marker = svgEl('marker', { id: 'arrow-' + evidence, markerWidth: 9, markerHeight: 7, refX: 8, refY: 3.5, orient: 'auto' });
       marker.append(svgEl('path', { d: 'M0,0 L9,3.5 L0,7 Z', class: evidence.startsWith('compare-')
         ? 'av-arrow-compare tone-' + evidence.slice(-1) : 'av-arrow-' + evidence })); $('graph-defs').append(marker);
@@ -945,7 +1126,7 @@
     $('view-mode').querySelector('[data-mode="compare"]').disabled = true;
     $('search-next').disabled = true;
     setModel(data, S.currentId);
-    $('mode').textContent = text(data.capture_mode || 'saved architecture') + ' · ' + S.model.nodes.size + ' components · ' +
+    $('mode').textContent = captureStatus(data) + ' · ' + S.model.nodes.size + ' components · ' +
       S.model.edges.length + ' saved dependencies · ' + S.model.events.length + ' observed calls';
     const option = element('option', S.currentId); option.value = S.currentId; $('capture').append(option);
     await loadLibrary();

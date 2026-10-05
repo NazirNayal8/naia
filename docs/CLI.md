@@ -145,15 +145,18 @@ Capture runs in your model's PyTorch environment, with NAIA installed there. Vie
 These commands work without project setup:
 
 ```bash
-naia arch capture --factory module:build --output graph.json --trace
+naia arch capture --factory module:build --output graph.json
 naia arch validate graph.json
 naia arch view graph.json
 ```
 
 The trusted factory returns `(model, example_args, example_kwargs)`. Capture runs copies of the model
 and inputs in evaluation mode, without gradients; use small inputs and a new output filename.
-Results cover that input path.
-Playback shows call order, not timing. FX tracing is optional and best effort.
+Sample capture records tensor dependencies by default; results cover that input path.
+`--trace` remains a compatibility flag. `--no-trace` records calls and shapes without
+dataflow; `--structure-only` skips the sample forward entirely. The factory still runs.
+`--aliases '{"encoder":"Token encoder"}'` or `--aliases @labels.json` supplies module-path labels.
+Playback shows saved calls or dependencies, not timing. Capture limits and fallback warnings stay in the graph.
 Standalone viewing opens at `http://127.0.0.1:8768`; `--port` changes it.
 
 Register a saved graph inside an initialized project to view it in the dashboard:

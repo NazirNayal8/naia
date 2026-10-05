@@ -1,4 +1,4 @@
-"""Configuration-independent hierarchy and observed/declared execution schema."""
+"""Configuration-independent hierarchy and tensor dependency evidence."""
 
 
 def validate_graph(graph):
@@ -29,11 +29,22 @@ def validate_graph(graph):
             raise ValueError("Edge endpoints must be identities")
         if edge["source"] not in by_id or edge["target"] not in by_id:
             raise ValueError("Edge references unknown node")
-        if edge.get("evidence") not in ("traced", "declared"):
-            raise ValueError("Data-flow edges require traced or declared evidence")
+        if edge.get("evidence") not in ("observed", "traced", "declared"):
+            raise ValueError("Data-flow edges require observed, traced or declared evidence")
     for event in graph.get("events", []):
         if not isinstance(event, dict) or not isinstance(event.get("node"), str) or event["node"] not in by_id:
             raise ValueError("Observed call references unknown module")
     if not isinstance(graph.get("warnings", []), list) or any(not isinstance(warning, str) for warning in graph.get("warnings", [])):
         raise ValueError("Architecture warnings must be strings")
+    flow = graph.get("dataflow")
+    if flow is not None:
+        if not isinstance(flow, dict) or not isinstance(flow.get("engine"), str):
+            raise ValueError("Data-flow metadata requires an engine")
+        identities = flow.get("nodes")
+        if (not isinstance(identities, list)
+                or any(not isinstance(identity, str) or identity not in by_id for identity in identities)
+                or len(set(identities)) != len(identities)):
+            raise ValueError("Data-flow metadata references invalid nodes")
+        if not isinstance(flow.get("complete"), bool):
+            raise ValueError("Data-flow metadata requires a completeness flag")
     return graph

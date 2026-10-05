@@ -34,13 +34,14 @@
   <div class="av-main">
     <section class="av-stage" aria-label="Architecture graph">
       <div class="av-controls" role="toolbar" aria-label="View and playback">
-        <span class="av-label">View</span>
+    <span class="av-label">View</span>
+        <div class="av-seg" id="projection"><button type="button" data-projection="flow" aria-pressed="true" disabled>Flow</button><button type="button" data-projection="hierarchy" aria-pressed="false" disabled>Hierarchy</button></div>
         <button type="button" class="av-btn" id="zoom-in" aria-label="Zoom in" disabled>+</button>
         <button type="button" class="av-btn" id="zoom-out" aria-label="Zoom out" disabled>−</button>
         <button type="button" class="av-btn" id="fit" title="Fit graph (F or 0)" disabled>Fit</button>
         <button type="button" class="av-btn" id="reset-layout" disabled>Reset layout</button>
         <button type="button" class="av-btn" id="export-svg" disabled>Export SVG</button>
-        <label class="av-check">Edge glyphs <select id="edge-labels" aria-label="Tensor shape labels on saved edges"><option value="changes">Changes</option><option value="all">All</option><option value="off">Off</option></select></label>
+        <label class="av-check">Tensor sizes <select id="edge-labels" aria-label="Tensor shape labels on saved edges"><option value="all">All</option><option value="changes">Changes</option><option value="off">Off</option></select></label>
         <span class="sep" aria-hidden="true"></span>
         <select id="playback-mode" aria-label="Playback evidence" disabled>
           <option value="calls">Observed calls</option>
@@ -54,6 +55,7 @@
         <span class="grow"></span>
         <button type="button" class="av-btn" id="theme" aria-label="Switch to light theme">Light</button>
       </div>
+      <p class="av-flow-status" id="flow-status" role="status" hidden>No recorded dataflow in this capture. This is module ownership, not execution order.</p>
       <div class="av-panel">
         <svg id="graph" role="group" aria-label="Draggable model hierarchy and saved dependencies" tabindex="0">
           <title>Model architecture</title>
@@ -64,6 +66,7 @@
       </div>
       <div class="av-legend" aria-label="Graph legend">
         <span><i class="legend-block"></i>Module / expanded group</span>
+        <span><i class="legend-edge observed"></i>Runtime tensor dependency</span>
         <span><i class="legend-edge traced"></i>Traced dependency</span>
         <span><i class="legend-edge declared"></i>Declared dependency</span>
         <span id="edge-status"></span>

@@ -5,7 +5,7 @@ It keeps tasks, experiment suites, results, and model diagrams together in your
 repository. You work through your existing assistant; a local browser UI lets
 you review the work and manage the task queue.
 
-Python 3.10+ · [MIT](https://github.com/NazirNayal8/naia/blob/main/LICENSE) · Alpha `0.1.0a1`
+Python 3.10+ · [MIT](https://github.com/NazirNayal8/naia/blob/main/LICENSE) · Alpha `0.1.0a2`
 
 ## Install
 
@@ -15,7 +15,7 @@ Install into a Python or Conda environment. Git must be available; no clone is n
 pip install "git+https://github.com/NazirNayal8/naia.git"
 ```
 
-Append `@v0.1.0a1` to the URL to install that release. NAIA is not yet published
+Append `@v0.1.0a2` to the URL to install that release. NAIA is not yet published
 on PyPI, so `pip install naia` is not the command for this project.
 
 NAIA's task/suite management and graph viewing need no GPU, PyTorch, or AI API key.
@@ -60,8 +60,8 @@ to skip discovery. Use `codex` or `claude` if you use only one.
 - Experiment suites with result tables, run tracking, and suite relationships.
 - Sequential local runs or parallel Slurm jobs, with dependent evaluations.
 - Analysis assignments linked to their inputs and outputs.
-- NAIA Lens: a draggable, color-coded model graph with hierarchy levels, tensor
-  shapes, and captured-call playback.
+- NAIA Lens: a draggable, color-coded model graph with separate Flow and Hierarchy
+  views, typed layers, intermediate tensor sizes, and captured-path playback.
   Lens is included in the same package and can also run on its own.
 
 ## Documentation

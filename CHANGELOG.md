@@ -1,5 +1,17 @@
 # Release notes
 
+## 0.1.0a2
+
+- Sample capture follows tensor dependencies by default, including branches and residual updates.
+- Flow and Hierarchy views separate execution from ownership; layers show type-based names,
+  distinct glyphs, and observed input/output sizes.
+- Assistant instructions cover source/config inspection, grounded sample inputs, and readable aliases.
+- Explicit structure-only capture, tracing opt-out, and partial-capture warnings remain available.
+
+Existing hierarchy-only graphs need recapturing to show tensor dependencies.
+
+Verified: 149 tests, real-capture Chromium checks, package builds, and isolated installation.
+
 ## 0.1.0a1
 
 - Existing-project setup collects bounded repository evidence for assistant review.

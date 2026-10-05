@@ -151,8 +151,11 @@ The browser reads saved graphs and does not run factories or capture training ru
 Drag nodes and arrow bends, pan/zoom, switch hierarchy levels, search, inspect module
 metadata and shapes, save layouts, export SVG, and play observed calls. Compare two or
 three registered captures side by side or as an overlay. Colors match the local viewer.
-Module enumeration records hierarchy; hooks record calls and shapes. Optional best-effort FX
-tracing adds supported data-flow edges. Hook order alone does not establish dependencies.
+Module enumeration records hierarchy; hooks record calls and shapes. Sample capture also
+records runtime tensor dependencies by default, with best-effort FX fallback. Observed,
+traced, and explicitly declared evidence remain distinct; hook order alone does not prove flow.
+Use `--no-trace` for calls/shapes only, `--structure-only` to skip the sample forward, and
+`--aliases` for readable module-path labels. The factory still runs in either mode.
 
 Capture runs copies of the model and inputs in evaluation mode, without gradients.
 Use small inputs and a new output filename. Calls and shapes describe the supplied
