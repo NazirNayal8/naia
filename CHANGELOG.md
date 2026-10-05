@@ -1,6 +1,6 @@
 # Release notes
 
-## Unreleased
+## 0.1.0a1
 
 - Existing-project setup collects bounded repository evidence for assistant review.
 - Assistants propose context with file references; users confirm or correct it.
@@ -9,8 +9,10 @@
 - Restored the local research UI's dark task deck and draggable suite graph,
   including task editing, archiving, status controls, and rendered suite cards.
 - Replaced the tree-only Lens screen with a draggable, color-coded graph,
-  hierarchy levels, shape inspection, and observed-call playback.
+  hierarchy levels, shape inspection, playback, saved layouts, comparison, and SVG export.
 - Removed the separate project-context tab; onboarding records are unchanged.
+
+Verified: 114 tests, Chromium dashboard/viewer checks, package builds, and isolated installation.
 
 ## 0.1.0a0
 
@@ -28,5 +30,5 @@ Verified: 74 tests in Python 3.10 with PyTorch, package builds and isolated
 installation, and Chromium checks for the dashboard and both Lens viewers.
 
 Real-cluster validation, interrupted-run recovery, migration, and PyPI publication
-are pending. Task and suite editing improvements are listed under Unreleased.
+are pending. Task and suite editing improvements are included in 0.1.0a1.
 See [TODO](TODO.md).
