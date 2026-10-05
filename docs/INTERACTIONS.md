@@ -1,114 +1,68 @@
 # Working with NAIA
 
-[README](../README.md) · [Features & options](FEATURES.md) · [CLI reference](CLI.md)
+[README](../README.md) · [Features](FEATURES.md) · [CLI](CLI.md)
 
-Your assistant is the main interface. These are example requests, not built-in
-chat commands: the assistant reads project context, clarifies missing details,
-and uses NAIA's tools. NAIA itself does not call an AI model.
+These are requests to your existing Codex or Claude assistant, not built-in chat
+commands. NAIA does not call an AI model. Once setup is complete, you do not need
+to repeat the workflow rules.
 
-Setup supplies the workflow rules once. Everyday requests can stay short.
+## Setup
 
-## Set up a project
+> Set up NAIA here. I use Codex and Claude.
 
-> “Set up NAIA here. I use Codex and Claude.”
+The assistant checks the repository, asks about unresolved project choices, and
+installs instructions for the selected assistants. Share an example submission
+script if you use Slurm. Review the project settings before confirming them.
 
-Choose Codex, Claude, or both. The assistant asks once if you omit the choice.
-NAIA installs a managed contract in `AGENTS.md`, `CLAUDE.md`, or both and preserves
-existing text. The selection and confirmed context live in `.lab/project.json`;
-both assistants use the same state without an assumed lead or assistant role.
+## Tasks
 
-The assistant inspects the repository and asks only about unresolved goals,
-hardware, execution, evaluation, and configuration choices. Fresh projects use
-confirmed reporting and governance defaults; questions about these concern your
-exceptions or preferences. Existing custom answers are preserved. For Slurm,
-share an example submission script and environment paths. Review project-specific
-answers before confirming them.
+> Remind me to review the baseline before increasing model capacity.
 
-The contract supplies concise writing, no unsolicited documents, automatic
-review followups, launch preparation, declared evaluation, and duplicate checks.
-Your assistant asks before deletion, scope expansion, or recording unapproved
-interpretations. Project-specific hardware and evaluation choices still need
-confirmation; you do not need to restate these defaults.
+> Pause that review, assign the data audit to Alex, and show me the next task.
 
-## Keep the next decision clear
+The assistant updates the queue. You can also change task status and priority
+in the browser, but editing task titles and goals is not yet supported there.
 
-> “Remind me to review the baseline before increasing model capacity.”
+## Experiments
 
-> “Pause that review, assign the data audit to Alex, and tell me the next ready
-> task.”
+> Test learning rates 0.0001, 0.0003, and 0.001.
 
-The assistant can create, assign, prioritize, pause, resume, complete, or cancel
-tasks. Each task records a goal, decision, owner, and evidence references.
-After substantive discussions, evaluations, and analyses, it creates user-review
-tasks or maintains existing ones with relevant evidence and the next decision.
+The assistant resolves missing choices with you and prepares a suite using your
+existing training and evaluation commands.
 
-In the browser, use **Start**, **Pause**, **Resume**, **Done**, or **Move to top**
-where offered. **Done** can record a short decision note. Existing task-text
-editing is not implemented in this alpha; the browser changes progress and
-ready-task priority, not titles or goals.
+> Launch this suite.
 
-## Turn a hypothesis into a suite
+It validates the suite, shows a dry-run plan, and launches the approved work.
+Declared evaluations run automatically: sequentially locally, or after successful
+training on Slurm.
 
-> “Test these learning-rate values: 0.0001, 0.0003, 0.001.”
+> Retry the failed evaluations.
 
-The assistant resolves missing scientific choices with you and prepares a
-machine-readable definition using your existing trainer and evaluator.
+The assistant checks tracked attempts first. Completed work is reused; uncertain
+job state needs investigation before retrying.
 
-> “Launch this suite.”
+## Review
 
-For authorized work, registration, validation, a dry run, and a brief launch plan
-are automatic preparation. Registration reserves result rows. The assistant uses
-the confirmed backend, checks existing jobs, and enables declared evaluations.
-It asks when a launch would exceed the approved design or resources.
+> What do these results tell us?
 
-Local runs execute sequentially. Slurm training runs can execute in parallel;
-declared evaluations queue after successful training. The browser shows suite
-cards and scientific lineage; it is not a launch console.
+Results update the suite card, and a review task is queued when all declared
+results are ready. The assistant discusses the findings; it records conclusions
+only after you approve them.
 
-## Review and close the loop
+> I approve that conclusion. Seal the suite.
 
-> “What do these results tell us?”
+Sealing prevents new training. It does not cancel jobs or block evaluations.
 
-Validated metrics update generated card tables. When every declared result is
-ready, NAIA queues one suite-review task. The assistant discusses conclusions
-with you, creates or maintains followup review tasks, and records interpretations
-only after approval; NAIA does not generate scientific explanations.
+## Analysis and model inspection
 
-> “I approve that conclusion. Seal it.”
+> Assign Alex a probing analysis of these checkpoints.
 
-Sealing is currently assistant/CLI-led, not a browser control. It blocks new
-training, but does not cancel jobs, delete evidence, or block evaluations.
+NAIA records the assignment and its evidence paths. Alex or an assistant still
+needs to perform the analysis.
 
-## Recover without duplicating work
+> Show this model's layers and tensor sizes in Lens. Attach it to the baseline suite.
 
-> “Retry the failed evaluations.”
-
-The assistant inspects tracked attempts before choosing a retry. Completed work
-is reused; uncertain state needs investigation, not a blind resubmission.
-
-## Assign analysis and inspect models
-
-> “Investigate what these checkpoints encode. Assign the probing analysis to Alex.”
-
-NAIA records the approved assignment and queues a task. The analyst or assistant
-performs it; recording an assignment does not run the analysis automatically.
-
-> “Show this model's architecture and intermediate tensor sizes in Lens.”
-
-Lens comes with the same NAIA installation. The assistant captures the model in
-its existing PyTorch environment, registers the saved graph, and opens the
-dashboard's Architecture tab. If a graph already exists, it can register and
-view it without PyTorch.
-
-> “Attach this architecture to the baseline suite and its review task.”
-
-The assistant links the capture to existing suite/task records so model structure
-and experiment evidence stay together. In Lens, expand blocks, select layers,
-inspect inputs/outputs, and play observed forward calls. Playback illustrates one
-captured execution, not measured latency. The dashboard does not run model
-factories or automatically capture every run.
-
-> “Show this saved architecture without setting up a project.”
-
-The standalone viewer opens the graph directly. Capture and validation also work
-without project setup through `naia arch`.
+The assistant captures the model in its PyTorch environment and links the saved
+graph. In Lens, expand blocks, inspect shapes, and play the captured forward calls.
+Playback is illustrative, not a timing measurement. Saved graphs can also be
+viewed without PyTorch or project setup.

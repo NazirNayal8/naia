@@ -1,118 +1,78 @@
 # NAIA
 
-**Nazir's AI Assistant** · Less bookkeeping. More research.
+NAIA (Nazir's AI Assistant) helps Codex and Claude organize research projects.
+It keeps tasks, experiment suites, results, and model diagrams together in your
+repository. You work through your existing assistant; a local browser UI lets
+you review the work and manage the task queue.
 
-An assistant-first workspace for research: discuss the next experiment with
-Codex or Claude, review it in the browser, and keep tasks, results, and model
-architectures connected.
+Python 3.10+ · [MIT](https://github.com/NazirNayal8/naia/blob/main/LICENSE) · Alpha `0.1.0a0`
 
-Local-first · Python 3.10+ · [MIT](https://github.com/NazirNayal8/naia/blob/main/LICENSE) · Alpha `0.1.0a0`
+## Install
 
-[Get started](#get-started) · [Examples](https://github.com/NazirNayal8/naia/blob/main/docs/INTERACTIONS.md) · [Features](https://github.com/NazirNayal8/naia/blob/main/docs/FEATURES.md) · [Release notes](https://github.com/NazirNayal8/naia/blob/main/CHANGELOG.md) · [TODO](https://github.com/NazirNayal8/naia/blob/main/TODO.md)
-
-## Your assistant is the front door
-
-> “Test these learning-rate values.”
-
-You discuss the research; your assistant translates approved decisions into NAIA
-records and commands. NAIA handles the bookkeeping and execution. It does not
-replace your assistant or provide an embedded chatbot.
-
-Setup installs shared defaults: concise writing, review tasks after substantive
-discussions and results, validated launch plans, automatic declared evaluations,
-and duplicate-job checks. You do not need to repeat them in each request.
-
-| Interface | Use it for |
-| --- | --- |
-| **AI assistant — primary** | Onboarding, creating tasks, designing suites, launching approved work, and discussing results. |
-| **Browser — visual companion** | Reviewing the queue, changing task progress and priority, exploring suites and results, and inspecting linked model architectures. |
-| **CLI — optional, secondary** | Direct control, automation, diagnostics, and recovery. |
-
-## Get started
-
-### 1. Install once
-
-One package includes the workflow and NAIA Lens. With Python 3.10+ and Git
-available, install directly into your chosen Python or Conda environment:
+Install into a Python or Conda environment. Git must be available; no clone is needed.
 
 ```bash
 pip install "git+https://github.com/NazirNayal8/naia.git"
 ```
 
-No manual clone needed. For the tagged alpha, append `@v0.1.0a0` to the URL.
-PyPI publication is pending; `pip install naia` is not the install command for
-this project yet. From a source checkout, use `pip install .` instead.
+Append `@v0.1.0a0` to the URL to install that release. NAIA is not yet published
+on PyPI, so `pip install naia` is not the command for this project.
 
-Workflow and graph viewing need no GPU, PyTorch, Hydra, or AI API key. Lens is
-optional to use. Model capture runs in your existing PyTorch environment, with
-NAIA installed there; it does not install or replace your Torch/CUDA stack.
-Separate management environments are covered in the
-[environment guide](https://github.com/NazirNayal8/naia/blob/main/docs/FEATURES.md#execution-and-environments).
+NAIA's task/suite management and graph viewing need no GPU, PyTorch, or AI API key.
+Your training and evaluation scripts still need their own dependencies.
+To capture a model, install NAIA in the model's existing PyTorch environment.
+NAIA does not install or replace Torch/CUDA. You can also use a
+[separate management environment](https://github.com/NazirNayal8/naia/blob/main/docs/FEATURES.md#execution-and-environments).
 
-### 2. Enable it in your project
+## Use in your project
 
-You do not need to clone NAIA inside your research project. Open that project
-with your usual assistant and ask:
+Open your project with Codex or Claude and ask:
 
-> “Set up NAIA here. I use Codex and Claude.”
+> Set up NAIA here. I use Codex and Claude.
 
-Choose **Codex**, **Claude**, or **both**. NAIA installs its managed contract in
-`AGENTS.md`, `CLAUDE.md`, or both, preserving existing instructions. Both assistants
-share the same project context and queue. If you do not specify a choice, your
-assistant asks once.
+The assistant adds instructions to `AGENTS.md`, `CLAUDE.md`, or both without
+replacing existing content. It checks your current setup and asks about goals,
+hardware, execution, evaluation, and configuration where needed. Confirmed
+answers are saved in `.lab/project.json`.
 
-The assistant inspects existing configuration and asks only about unresolved
-goals, hardware, execution, evaluation, and configuration choices. Fresh projects
-use confirmed reporting and governance defaults; discuss exceptions when needed.
-Your existing training stack stays in place, and context lives in
-`.lab/project.json`. Hardware and evaluation choices still need your confirmation.
+Then use ordinary requests: "Add a review task", "Test these learning rates",
+or "Retry the failed evaluations". The instructions cover concise records,
+review followups, launch validation, automatic evaluations, and duplicate checks.
+NAIA uses your existing trainer, evaluator, and config system.
 
-Ask your assistant to run `naia ui`; the dashboard is available at
-[localhost:8767](http://127.0.0.1:8767). Prefer to explore first? Ask it to run the
-[tiny CPU demo](https://github.com/NazirNayal8/naia/blob/main/docs/CLI.md#try-the-demo).
+Ask the assistant to run `naia ui` to open the dashboard at
+[localhost:8767](http://127.0.0.1:8767). You can change task status and priority
+there; suite design, launches, and sealing go through the assistant or CLI.
 
-For a manual bootstrap only: run `naia init --assistant both` from your project's
-root, then ask the assistant to read the installed instructions and complete
-setup. Choose `codex` or `claude` if you use just one. Repeat this project step
-for each repository; reinstalling NAIA is not necessary.
+For manual setup, run `naia init --assistant both` in your project, then ask the
+assistant to complete onboarding. Use `codex` or `claude` if you use only one.
 
-## What stays organized
+## What's included
 
-| Feature | What it gives you |
-| --- | --- |
-| [Task queue](https://github.com/NazirNayal8/naia/blob/main/docs/FEATURES.md#task-queue) | One next decision, explicit ownership, and a prioritized review queue. |
-| [Experiment suites](https://github.com/NazirNayal8/naia/blob/main/docs/FEATURES.md#suites-and-results) | Approved run grids, concise cards, reserved result rows, and scientific lineage. |
-| [Run automation](https://github.com/NazirNayal8/naia/blob/main/docs/FEATURES.md#execution-and-environments) | Sequential local runs or parallel Slurm jobs, with automatic declared evaluations. |
-| [Analysis assignments](https://github.com/NazirNayal8/naia/blob/main/docs/FEATURES.md#analysis-assignments) | Investigations tied to instructions and input/output evidence paths. |
-| [NAIA Lens](https://github.com/NazirNayal8/naia/blob/main/docs/FEATURES.md#naia-lens) | Hierarchical model inspection, tensor shapes, and forward-call playback, linked to suites and review tasks. |
+- A prioritized task queue with owners and review decisions.
+- Experiment suites with result tables, run tracking, and suite relationships.
+- Sequential local runs or parallel Slurm jobs, with dependent evaluations.
+- Analysis assignments linked to their inputs and outputs.
+- NAIA Lens: expandable model diagrams, tensor shapes, and captured-call playback.
+  Lens is included in the same package and can also run on its own.
 
-Keep your existing trainer, evaluator, and configuration system. NAIA connects
-them through approved definitions rather than imposing a new research stack.
-Inspect models in the dashboard's Architecture tab without mixing capture into
-every training run.
+## Documentation
 
-## Explore
+- [Examples](https://github.com/NazirNayal8/naia/blob/main/docs/INTERACTIONS.md)
+- [Features and limits](https://github.com/NazirNayal8/naia/blob/main/docs/FEATURES.md)
+- [CLI reference](https://github.com/NazirNayal8/naia/blob/main/docs/CLI.md) — optional direct control; includes a small CPU demo.
+- [Release notes](https://github.com/NazirNayal8/naia/blob/main/CHANGELOG.md) and [TODO](https://github.com/NazirNayal8/naia/blob/main/TODO.md)
 
-- [Conversation examples](https://github.com/NazirNayal8/naia/blob/main/docs/INTERACTIONS.md): everyday requests to your assistant.
-- [Features & options](https://github.com/NazirNayal8/naia/blob/main/docs/FEATURES.md): capabilities, settings, storage, and limits.
-- [CLI reference](https://github.com/NazirNayal8/naia/blob/main/docs/CLI.md): secondary commands for direct control and recovery.
-- [Release notes](https://github.com/NazirNayal8/naia/blob/main/CHANGELOG.md) and [TODO](https://github.com/NazirNayal8/naia/blob/main/TODO.md): what is available and what remains.
+## Status
 
-## Alpha status
+This is an early alpha. Local execution, installation, PyTorch capture, and the
+browser UI have been tested. Slurm tests use a mocked scheduler; real-cluster
+validation and interrupted-run recovery are still pending. The UI does not yet
+edit task text or suite status.
 
-Local workflows, package installation, PyTorch capture, and browser rendering
-have been tested. Slurm contracts are tested with mocked scheduler responses;
-real-cluster validation remains pending. UI text editing, historical migration,
-and interrupted-process recovery are still on the TODO list.
+NAIA has no embedded chatbot or hosted service. Assistant instructions are not
+a security sandbox; model capture executes trusted Python code. Try a small
+project first, and [report issues](https://github.com/NazirNayal8/naia/issues)
+without including credentials or private data.
 
-NAIA is local-first, not a hosted collaboration service. Its assistant rules guide
-behavior; they are not authentication or a security sandbox. Capture runs trusted
-Python factories, and playback is illustrative—not a latency measurement.
-
-Try a small project first. [Report a bug](https://github.com/NazirNayal8/naia/issues)
-with the command, expected behavior, and a minimal example; redact private paths,
-credentials, and research data.
-
-For contributors: `pip install -e .`, then
-`python -m unittest discover -s tests -v`. CI checks package builds and fresh
-installation; PyTorch capture has a separate CPU test job.
+For development: `pip install -e .`, then `python -m unittest discover -s tests -v`.

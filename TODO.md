@@ -1,23 +1,23 @@
 # TODO
 
-## First integrations
+## Testing and recovery
 
-- [ ] Test onboarding and a complete train/evaluate/review cycle in another project.
-- [ ] Verify GitHub CI after the first push; check the packaged installation across its Python matrix.
-- [ ] Run real Slurm smoke tests: shared environments, dependent evaluations, duplicate checks, failures, and filesystem locks.
-- [ ] Add safe recovery for stale local runs after launcher interruption.
-- [ ] Add explicit reconciliation/adoption for uncertain Slurm submissions; retain conservative duplicate protection.
+- [ ] Test setup and a full train/evaluate/review cycle in another project.
+- [ ] Verify GitHub CI across the supported Python versions.
+- [ ] Test on a real Slurm cluster: shared environments, dependent evaluations, duplicates, failures, and file locking.
+- [ ] Recover safely from interrupted local launchers.
+- [ ] Reconcile uncertain Slurm submissions without risking duplicate jobs.
 
-## Distribution and portability
+## Installation and portability
 
-- [ ] Set up PyPI Trusted Publishing and verify the `naia` name before the first upload.
-- [ ] Strengthen environment diagnostics: interpreter execution and installed NAIA checks.
-- [ ] Implement and test import/migration of existing task and experiment records.
+- [ ] Check PyPI name availability and set up Trusted Publishing.
+- [ ] Check that configured interpreters run and have NAIA installed where needed.
+- [ ] Import existing task and experiment records.
 
-## Interface
+## Browser
 
-- [ ] Add browser task-text editing and approved suite/context controls.
-- [ ] Render suite Markdown rather than displaying source text.
-- [ ] Connect browser refresh to scheduler reconciliation, not just saved-result syncing.
+- [ ] Edit task text and approved suite/context settings.
+- [ ] Render suite Markdown instead of showing its source.
+- [ ] Include scheduler reconciliation in refresh, not just saved results.
 
-Current capabilities and limits: [feature guide](docs/FEATURES.md).
+See [features and limits](docs/FEATURES.md) for current behavior.

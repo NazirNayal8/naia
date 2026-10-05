@@ -1,13 +1,15 @@
 # NAIA command reference
 
-[README](../README.md) · [Interaction examples](INTERACTIONS.md) · [Features & options](FEATURES.md)
+[README](../README.md) · [Examples](INTERACTIONS.md) · [Features](FEATURES.md)
 
-Use conversation with your assistant to plan and approve work, and the browser to review project context, tasks, suites, and evidence. The CLI is a secondary interface for setup, automation, and recovery. These commands describe the development alpha exported here.
+Use your existing Codex or Claude assistant to set up projects and run approved work.
+Use the browser to review tasks, suites, results, and model graphs.
+The CLI is for direct control, automation, and recovery.
 
 ## Install and open
 
-Install once using the [README instructions](../README.md#get-started), with
-Python 3.10+. Then enable NAIA in any project; no NAIA checkout is needed there:
+Follow the [installation steps](../README.md#install) with Python 3.10+.
+From a source checkout, use `python -m pip install .`. This version is not on PyPI yet.
 
 ```bash
 cd /path/to/your/project
@@ -17,39 +19,18 @@ naia context questions
 naia ui
 ```
 
-Open `http://127.0.0.1:8767`; change the port with `naia ui --port 9000`. One NAIA
-installation includes the workflow and Lens. Neither workflow nor graph viewing
-needs PyTorch; model capture runs in your model's PyTorch environment. `lab`,
-`naia-arch`, and `lab-arch` remain compatibility commands.
+Open `http://127.0.0.1:8767`; use `naia ui --port 9000` to change the port.
+Commands find `.lab/project.json` in the current directory or its ancestors.
+Select a project with `naia --project /path/to/project <command>`.
 
-For a source checkout, run `python -m pip install .`. This unified version is
-not published on PyPI yet. `pipx` is optional and must be installed separately.
-A pipx-managed NAIA needs explicit project interpreters in its backend;
-it does not use your activated environment by default.
-
-Commands discover `.lab/project.json` in the current directory or its ancestors. Select a project explicitly with `naia --project /path/to/project <command>`.
-
-`--assistant codex`, `--assistant claude`, or `--assistant both` selects root
-`AGENTS.md`, `CLAUDE.md`, or both. Setup installs or upgrades a managed contract
-without replacing existing text and stores the choice in `.lab/project.json`.
-Plain `naia init` returns the assistant-choice question if no choice is recorded;
-your assistant asks once.
-Both integrations share the same state and rules, without assigned lead roles.
-
-For an existing project:
-
-```bash
-naia instructions install --assistant both
-```
-
-Positional filenames remain compatible: `naia instructions install AGENTS.md CLAUDE.md`.
-The contract makes review followups, concise writing, launch preparation,
-automatic declared evaluations, and duplicate checks default assistant behavior.
-You do not need to request these steps in each prompt.
+Choose `codex`, `claude`, or `both` to install managed rules in root `AGENTS.md`, `CLAUDE.md`, or both.
+Setup preserves existing text. Without a recorded choice, `naia init` returns a question for your assistant.
+For an existing project, use `naia instructions install --assistant both`.
+See [assistant setup and defaults](FEATURES.md#project-setup).
 
 ## Try the demo
 
-Use a fresh directory for the synthetic CPU example; no GPU is needed:
+This synthetic CPU example requires a fresh directory:
 
 ```bash
 naia --project ./naia-demo demo
@@ -58,39 +39,27 @@ naia suite launch DEMO
 naia ui
 ```
 
-Two tiny runs produce automatic evaluations, updated cards, and one review task.
-Demo confirmation applies only to this synthetic project.
+Two small runs produce evaluations, updated cards, and one review task.
+The demo confirms setup only for its own synthetic project.
 
-## Confirm onboarding
+## Confirm setup
 
-Context has seven fields: `project`, `hardware`, `execution`, `evaluation`,
-`reporting`, `configuration`, and `governance`. Fresh projects confirm built-in
-reporting and governance defaults; the assistant inspects the repository and
-asks only about unresolved choices in the other five. Discuss reporting or
-governance exceptions when needed. Setup preserves existing customized context.
-Review project-specific answers, exclusions, and execution paths before confirming.
+Your assistant records confirmed project choices. Fresh projects already have reporting and governance
+defaults; the other five topics still need answers.
+See [context fields](FEATURES.md#project-setup).
 
 ```bash
 naia context show
 naia context set project --value @project-answer.json
-```
-
-`--value` accepts JSON or `@file`. This records an unconfirmed answer. Add
-`--confirmed` after the user confirms a project-specific answer or a change to
-the defaults. Do not infer user approval for unresolved project choices.
-
-Configure a user-approved local or Slurm backend, then finalize onboarding:
-
-```bash
 naia context backend local --file local.json --confirmed
 naia context confirm --by YOUR_NAME
 naia doctor
 ```
 
-`local.json` may contain `{"kind":"local"}`. Final confirmation requires a named user, seven confirmed answers with nonempty values, and at least one confirmed backend. Launches, including dry runs, require confirmed onboarding and the selected confirmed backend. Changing an answer or backend resets onboarding to pending; reconfirm afterward.
-
-The installed defaults do not replace confirmation of hardware, evaluation
-protocol, execution settings, or other meaningful project choices.
+`--value` accepts JSON or `@file`. Add `--confirmed` to `context set` only after the user confirms that answer.
+`local.json` can contain `{"kind":"local"}`. Final confirmation needs a named user, seven confirmed
+nonempty answers, and at least one confirmed backend. Launches, including dry runs, require this setup
+and a confirmed selected backend. Changing an answer or backend resets setup to pending; confirm again.
 
 ## Tasks
 
@@ -103,15 +72,14 @@ naia task start REVIEW
 naia task done REVIEW --note "Approved the follow-up"
 ```
 
-Other actions: `pause`, `resume`, `cancel`, `move-top`, and `assign ID --owner NAME`. Each accepts `--note`. Add supports `--owner`, repeated `--material` and `--depends-on`, and `--top`. Dependencies reference existing tasks but do not block selection. `next` favors the active task, then the first ready task; only one task can be active.
+Other actions: `pause`, `resume`, `cancel`, `move-top`, and `assign ID --owner NAME`; each accepts `--note`.
+Add accepts `--owner`, repeated `--material` and `--depends-on`, and `--top`. Related tasks do not block selection.
+See [queue behavior](FEATURES.md#task-queue).
 
 ## Suites and recovery
 
-Prepare an approved JSON definition containing `schema_version: 1`, ID, title, question, cells, training `argv`, completion artifact, and evaluation profiles with commands and expected metric paths. Reserve results before execution.
-
-Within authorized work, the assistant registers and validates the suite, runs a
-dry run, and presents a brief plan before launching. The following commands are
-available for direct control or recovery; users can simply ask to launch a suite.
+Prepare an approved [suite definition](FEATURES.md#suites-and-results) in JSON. Your assistant registers it,
+reserves results, validates it, runs a dry run, and shows a brief plan before an authorized launch.
 
 ```bash
 naia suite add suite.json --approved-by YOUR_NAME
@@ -124,21 +92,35 @@ naia suite evaluate SUITE --retry
 naia suite seal SUITE --by YOUR_NAME
 ```
 
-Use `--approved-by` and sealing only for actual user approval. Launch/evaluate accept `--backend`, `--cell`, `--profile`, `--dry-run`, and `--retry`; launch also supports `--no-auto-eval` for recovery. Local work runs sequentially; Slurm queues dependent evaluations automatically. Verified completed work is reused. Evaluation retry preserves earlier evidence without retraining; training retry creates a new attempt. Inspect uncertain states before retrying. Dry runs create no launch records. Changed definitions require a new suite. Sealing blocks new training but permits evaluation; there is no general suite-status setter.
+Registration and sealing require actual user approval. Launch/evaluate accept `--backend`, `--cell`,
+`--profile`, `--dry-run`, and `--retry`. Declared evaluations run automatically; use launch's
+`--no-auto-eval` only for recovery. Local work runs sequentially; Slurm queues dependent evaluations.
+Completed work is reused after verification.
 
-## Backends and records
+Evaluation retry preserves earlier evidence without retraining; training retry creates a new attempt.
+Inspect uncertain states before retrying. Dry runs create no launch records. Changed definitions need a new suite.
+Sealing blocks new training but permits evaluation. `naia sync` checks tracked Slurm jobs, updates validated
+results, and queues reviews when results are ready.
 
-Slurm profiles require shared `management_python`; optional `command_python`, `evaluation_python`, command-prefix lists, and separate `resources`/`evaluation_resources` select execution environments. Install NAIA in the management environment. See the [backend template](../examples/slurm_profile.json).
+## Execution environments
 
-Records live in `.lab/project.json`, `tasks.json`, `suites/<ID>/{suite.json,card.md}`, `state/registry.json`, `state/runs/<suite>/<cell>/<attempt>/`, and `analyses/`. `sync` reconciles tracked Slurm jobs, refreshes validated result tables, and queues reviews when all results are ready.
+Training `{python}` uses backend `command_python`, or NAIA's interpreter if omitted.
+Evaluation uses `evaluation_python`, or inherits the training interpreter.
+For a separate management or pipx installation, set project interpreter paths explicitly;
+activating another environment does not change them.
+
+Slurm needs a shared `management_python` with NAIA installed. See the [backend template](../examples/slurm_profile.json)
+and [environment options](FEATURES.md#execution-and-environments) for command prefixes and separate evaluation resources.
 
 ## Analysis assignments
 
-`naia analysis add analysis.json --approved-by YOUR_NAME` records an approved question, instructions, existing input paths, output paths, and optional owner, then queues a task. The assistant performs the analysis.
+`naia analysis add analysis.json --approved-by YOUR_NAME` records approved instructions and input/output paths,
+then queues a task. Your assistant performs the [analysis](FEATURES.md#analysis-assignments).
 
 ## NAIA Lens
 
-Capture, validation, and standalone viewing do not require an initialized project:
+Capture runs in your model's PyTorch environment, with NAIA installed there. Viewing needs no PyTorch.
+These commands work without project setup:
 
 ```bash
 naia arch capture --factory module:build --output graph.json --trace
@@ -146,10 +128,13 @@ naia arch validate graph.json
 naia arch view graph.json
 ```
 
-The trusted factory returns `(model, example_args, example_kwargs)`. Capture executes copied model/sample inputs; choose a new output filename. Lens opens at `http://127.0.0.1:8768` (`--port` overrides it). Observations cover the supplied input; playback shows call order, not timing. FX tracing is optional and best effort.
+The trusted factory returns `(model, example_args, example_kwargs)`. Capture runs copies of the model
+and inputs in evaluation mode, without gradients; use small inputs and a new output filename.
+Results cover that input path.
+Playback shows call order, not timing. FX tracing is optional and best effort.
+Standalone viewing opens at `http://127.0.0.1:8768`; `--port` changes it.
 
-To connect a saved graph to the project dashboard, register it from an initialized
-project. Full launch onboarding is not required:
+Register a saved graph inside an initialized project to view it in the dashboard:
 
 ```bash
 naia arch add BASELINE --graph artifacts/baseline.json --title "Baseline model" \
@@ -158,14 +143,12 @@ naia arch list
 naia ui
 ```
 
-`--suite` and `--task` are optional links to existing records. The graph must be
-inside the project root. Registration validates it and stores its relative path
-and checksum; it does not modify the graph. Select it in the dashboard's
-Architecture tab, or follow its suite/task links. The dashboard reads saved
-graphs; it does not execute factories or automatically capture training runs.
-For a changed capture, use a new graph filename and registration ID.
-`naia-arch` and `lab-arch` keep standalone capture/validate/view compatibility.
+The graph must be inside the project root. `--suite` and `--task` link existing records and are optional.
+Registration validates the graph and records its path and checksum; full launch setup is not required.
+Select it in the Architecture tab. Keep registered graphs unchanged; use a new file and ID for a revision.
+The dashboard reads saved graphs. See [Lens details](FEATURES.md#naia-lens).
 
-## Help
+## Help and records
 
-`naia --help`, `naia suite launch --help`, and `naia arch capture --help`.
+Use `naia --help`, `naia suite launch --help`, or `naia arch capture --help`.
+See [project files](FEATURES.md#project-files). `lab`, `naia-arch`, and `lab-arch` remain compatibility commands.
