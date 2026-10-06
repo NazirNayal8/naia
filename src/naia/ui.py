@@ -142,6 +142,7 @@ def handler(project, token):
             lens_assets = {"/architecture": ("index.html", "text/html; charset=utf-8"),
                            "/architecture/": ("index.html", "text/html; charset=utf-8"),
                            "/architecture/viewer.js": ("viewer.js", "text/javascript; charset=utf-8"),
+                           "/architecture/blocks.js": ("blocks.js", "text/javascript; charset=utf-8"),
                            "/architecture/style.css": ("style.css", "text/css; charset=utf-8")}
             if path in lens_assets:
                 filename, mime = lens_assets[path]
@@ -149,6 +150,7 @@ def handler(project, token):
                 if filename == "index.html":
                     content = content.replace(b'href="/style.css"', b'href="/architecture/style.css"')
                     content = content.replace(b'src="/viewer.js"', b'src="/architecture/viewer.js"')
+                    content = content.replace(b'src="/blocks.js"', b'src="/architecture/blocks.js"')
                 return self.send(200, content, mime, embeddable=filename == "index.html")
             assets = {"/": ("index.html", "text/html; charset=utf-8"),
                       "/archive": ("index.html", "text/html; charset=utf-8"),

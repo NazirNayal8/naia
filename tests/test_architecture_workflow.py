@@ -23,6 +23,7 @@ from naia.storage import NAIAError, read_json, write_json
 from naia.suites import Suites, definition_digest
 from naia.tasks import Tasks
 from naia.ui import handler
+from naia_arch.cli import make_handler
 
 
 GRAPH = {"schema_version": 1, "capture_mode": "declared",
@@ -206,15 +207,20 @@ class ArchitectureDashboardTest(ArchitectureFixture, unittest.TestCase):
             self.assertEqual(json.load(response), GRAPH)
         with urlopen(self.base + "/architecture?id=MODEL", timeout=5) as response:
             page = response.read()
+            self.assertIn(b'/architecture/blocks.js', page)
             self.assertIn(b'/architecture/viewer.js', page)
             self.assertIn(b'/architecture/style.css', page)
+            self.assertLess(page.index(b'/architecture/blocks.js'), page.index(b'/architecture/viewer.js'))
             self.assertIn("frame-ancestors 'self'", response.headers["Content-Security-Policy"])
         with urlopen(self.base + "/", timeout=5) as response:
             self.assertIn(b'data-tab="architectures"', response.read())
             self.assertIn("frame-ancestors 'none'", response.headers["Content-Security-Policy"])
-        for path in ("/architecture/viewer.js", "/architecture/style.css", "/app.js"):
+        for path in ("/architecture/blocks.js", "/architecture/viewer.js", "/architecture/style.css", "/app.js"):
             with urlopen(self.base + path, timeout=5) as response:
                 self.assertEqual(response.status, 200)
+                if path.endswith("blocks.js"):
+                    self.assertIn("text/javascript", response.headers["Content-Type"])
+                    self.assertEqual(response.read(), (ROOT / "src/naia_arch/assets/blocks.js").read_bytes())
 
     def test_invalid_queries_and_external_paths_are_rejected(self):
         for query in ("", "?id=", "?id=MISSING", "?id=MODEL&id=MODEL", "?id=MODEL&path=outside", "?" + urlencode({"id": "../outside"})):
@@ -241,6 +247,36 @@ class ArchitectureDashboardTest(ArchitectureFixture, unittest.TestCase):
         with self.assertRaises(HTTPError) as error:
             urlopen(bad_host, timeout=5)
         self.assertEqual(error.exception.code, 403)
+
+
+class StandaloneArchitectureAssetTest(unittest.TestCase):
+    def setUp(self):
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(GRAPH))
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.base = f"http://127.0.0.1:{self.server.server_port}"
+
+    def test_standalone_page_loads_the_packaged_block_glossary(self):
+        with urlopen(self.base + "/", timeout=5) as response:
+            page = response.read()
+            self.assertIn(b'src="/blocks.js"', page)
+            self.assertLess(page.index(b'src="/blocks.js"'), page.index(b'src="/viewer.js"'))
+        with urlopen(self.base + "/blocks.js", timeout=5) as response:
+            self.assertEqual(response.status, 200)
+            self.assertIn("text/javascript", response.headers["Content-Type"])
+            self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
+            self.assertEqual(response.read(), (ROOT / "src/naia_arch/assets/blocks.js").read_bytes())
+
+    def test_standalone_asset_keeps_host_guard_and_path_allowlist(self):
+        request = Request(self.base + "/blocks.js", headers={"Host": "attacker.example"})
+        with self.assertRaises(HTTPError) as error:
+            urlopen(request, timeout=5)
+        self.assertEqual(error.exception.code, 403)
+        for path in ("/assets/blocks.js", "/../blocks.js", "/blocks.js?path=outside"):
+            with self.subTest(path=path), self.assertRaises(HTTPError) as error:
+                urlopen(self.base + path, timeout=5)
+            self.assertEqual(error.exception.code, 404)
 
 
 if __name__ == "__main__":

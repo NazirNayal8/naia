@@ -242,7 +242,8 @@ class TensorFlowTest(unittest.TestCase):
                 return self.linear(x) + x
         graph = capture(ResidualConv(), (torch.zeros(1, 4),))
         root = next(n for n in graph["nodes"] if n["id"] == "root")
-        self.assertEqual(root["display_type"], "ResidualConv")
+        self.assertEqual(root["display_type"], "Block")
+        self.assertEqual(root["visual_kind"], "container")
         self.assertEqual(root["family"], "container")
 
     def test_constant_outputs_are_explicitly_not_complete_flow(self):

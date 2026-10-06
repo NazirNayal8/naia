@@ -167,7 +167,10 @@ class ArchitectureAssistantFlowTest(unittest.TestCase):
     def test_rules_require_source_grounded_flow_and_preserve_execution_boundaries(self):
         text = ASSISTANT_RULES.lower()
         for phrase in ("permitted model, config, and forward", "sample-input shapes", "uncertain details",
-                       "trusted factory", "real sample dataflow", "validate the saved graph", "module-path aliases",
+                       "trusted factory", "real sample dataflow", "validate the saved graph",
+                       "computational type", "module paths and aliases in the inspector", "block glossary",
+                       "expansion/contraction glyphs need verified dimensions",
+                       "unfamiliar custom modules must not be guessed from their class names",
                        "tensor dimensions", "intermediate sizes", "observed, traced, and declared",
                        "hook order do not prove dependencies", "cited source/config evidence", "not invented flow",
                        "separate graph files and ids", "never run factories from the browser"):

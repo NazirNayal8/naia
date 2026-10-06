@@ -25,9 +25,9 @@ class ViewerFlowTest(unittest.TestCase):
             shapes:lens.shapeSummary([{shape:[2,4,8]}, {shape:[2,2]}])
           }));
         """)
-        self.assertEqual(result["type"], "Linear 4→8")
-        self.assertEqual(result["alias"], "State projection")
-        self.assertEqual(result["input"], "Actions")
+        self.assertEqual(result["type"], "Linear 4 → 8")
+        self.assertEqual(result["alias"], "Linear")
+        self.assertEqual(result["input"], "Input")
         self.assertEqual(result["shapes"], "2 × 4 × 8 · 2 × 2")
 
     def test_collapsed_flow_preserves_input_to_output_and_skips_unused(self):

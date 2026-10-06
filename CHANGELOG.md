@@ -1,5 +1,18 @@
 # Release notes
 
+## 0.1.0a4
+
+- Reusable catalogue of 64 block types with coordinated colours, shapes, and pictograms.
+- Built-in searchable glossary; block labels show computational types, with model names
+  and paths kept in the inspector. Verified size changes control tapered shapes.
+- More precise module and operation classification, including arithmetic distinctions
+  and neutral fallbacks for custom layers.
+- Dragging, playback, comparison, both themes, and SVG export remain supported.
+
+Existing projects refresh managed instructions with `naia instructions install` after upgrading.
+
+Verified: 188 tests, browser checks, package builds, and isolated installation.
+
 ## 0.1.0a3
 
 - Optional, user-confirmed roles for Codex and Claude: peers, either lead/support direction,

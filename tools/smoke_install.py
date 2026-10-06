@@ -30,7 +30,7 @@ def main():
     if len(licenses) != 1 or "Copyright (c) 2026 Nazir Nayal" not in installed.locate_file(licenses[0]).read_text():
         raise RuntimeError("Missing packaged MIT license")
     for package, script in (("naia", "app.js"), ("naia_arch", "viewer.js")):
-        for asset in ("index.html", "style.css", script):
+        for asset in ("index.html", "style.css", script, *(('blocks.js',) if package == 'naia_arch' else ())):
             if not files(package).joinpath("assets", asset).is_file():
                 raise RuntimeError(f"Missing installed asset: {package}/{asset}")
     if "torch" in sys.modules:

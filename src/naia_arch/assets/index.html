@@ -65,13 +65,25 @@
         <div id="comparison-panels" class="av-comparison-panels" hidden></div>
       </div>
       <div class="av-legend" aria-label="Graph legend">
-        <span><i class="legend-block"></i>Module / expanded group</span>
+        <span><i class="legend-block"></i>Layer glyph / ownership group</span>
         <span><i class="legend-edge observed"></i>Runtime tensor dependency</span>
         <span><i class="legend-edge traced"></i>Traced dependency</span>
         <span><i class="legend-edge declared"></i>Declared dependency</span>
         <span id="edge-status"></span>
         <span id="comparison-legend" hidden></span>
       </div>
+      <details class="av-glossary" id="block-glossary">
+        <summary><span>Block glossary</span><span class="av-note" id="glossary-count"></span></summary>
+        <div class="av-glossary-filters">
+          <label class="sr-only" for="glossary-search">Search block types</label>
+          <input id="glossary-search" type="search" placeholder="Search block types">
+          <label class="sr-only" for="glossary-category">Block category</label>
+          <select id="glossary-category"><option value="">All categories</option></select>
+          <p class="av-note">Expand a type to see what its shape and glyph represent.</p>
+        </div>
+        <div id="glossary-results" class="av-glossary-results"></div>
+        <p class="av-note av-glossary-status" id="glossary-status" role="status" aria-live="polite"></p>
+      </details>
       <p class="av-note av-hint">Drag blocks or arrows · drag background to pan · scroll to zoom · double-click a block to expand</p>
       <p class="av-note av-hint" id="playback-status" aria-live="polite">Playback is illustrative, not measured timing.</p>
     </section>
@@ -83,6 +95,7 @@
     </aside>
   </div>
 </main>
+<script src="/blocks.js"></script>
 <script src="/viewer.js"></script>
 </body>
 </html>

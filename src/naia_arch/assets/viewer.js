@@ -1,11 +1,11 @@
-/* Generic NAIA Lens graph viewer.
- * Palette, nested left-to-right layout, drag controls, camera and pulse design
- * follow tools/arch_viz_ui.js. Saved evidence is the only source of arrows.
+/* NAIA Lens graph viewer. Layer shapes and glyphs use the shared block catalog.
+ * Saved evidence is the only source of execution arrows.
  */
 (() => {
   'use strict';
+  const Blocks = typeof module === 'object' && module.exports ? require('./blocks.js') : window.NAIABlocks;
   const LEVELS = ['Pipeline', 'Modules', 'Blocks', 'Operations'];
-  const PAD = 22, HEAD = 54, ROW_GAP = 24, COL_GAP = 82;
+  const PAD = 22, HEAD = 48, ROW_GAP = 24, COL_GAP = 64;
   const text = value => value == null ? '' : String(value);
   const short = (value, limit = 30) => {
     const s = text(value); return s.length > limit ? s.slice(0, limit - 1) + '…' : s;
@@ -42,23 +42,25 @@
     if (Array.isArray(edge.shape)) return shapeSummary({ shape: edge.shape });
     return shapeSummary(edge.shape ?? sourceOutputs);
   }
-  function nodeType(node) {
-    const type = text(node.display_type || node.operation || node.type || 'component'), config = node.config || {};
-    if (/^linear$/i.test(type) && Number.isFinite(config.in_features) && Number.isFinite(config.out_features))
-      return type + ' ' + config.in_features + '→' + config.out_features;
-    if ((node.family === 'convolution' || /^conv[123]d$|^convolution\s*[123]d$/i.test(type)) && !/\d+\s*[×x]\s*\d+|\s\d+$/.test(type)
-      && (Array.isArray(config.kernel_size) || Number.isFinite(config.kernel_size)))
-      return type + ' ' + (Array.isArray(config.kernel_size) ? config.kernel_size.map(text).join('×') : config.kernel_size);
-    return type;
+  function blockDesign(node, evidence = {}) {
+    return Blocks.resolve(node, { inputs: evidence.inputs ?? node.inputs, outputs: evidence.outputs ?? node.outputs });
   }
-  function nodeTitle(node) {
-    const label = text(node.label), type = nodeType(node);
-    if (node.kind === 'input' || node.type === 'placeholder') return label || 'Input';
-    if (node.kind === 'output' || node.type === 'output') return label || 'Output';
-    // ModuleList/Sequential indices are paths, not useful operation names.
-    if (!label || /^\d+$/.test(label) || label === node.module_path || label === node.id || label === node.operation || label === node.display_type || /^aten[.:]/.test(label))
-      return type;
-    return label;
+  function nodeType(node) { return blockDesign(node).title; }
+  function nodeTitle(node) { return nodeType(node); }
+  function contentRegion(shape, w, h) {
+    // The text stays in the central interior even for pointed or curved outlines.
+    const pointed = shape === 'diamond', curved = ['circle', 'ellipse', 'attention', 'arithmetic', 'merge'].includes(shape);
+    const framed = ['norm', 'recurrent', 'pool', 'reduction', 'copy'].includes(shape);
+    const inset = pointed ? .32 : curved ? .17 : framed ? .15 : .10;
+    return { x: w * inset, y: h * (pointed ? .31 : .20), w: w * (1 - inset * 2), h: h * (pointed ? .40 : .63) };
+  }
+  function nodeSize(node, evidence = {}) {
+    const design = blockDesign(node, evidence), region = contentRegion(design.shape, 1, 1);
+    const input = shapeSummary(evidence.inputs ?? node.inputs), output = shapeSummary(evidence.outputs ?? node.outputs);
+    const titleWidth = Math.max(Math.min(48, text(design.title).length) * 6.65, text(design.category).length * 5.4) + 40;
+    const dimensionsWidth = Math.max(input.length, output.length, 1) * 6.35 + 25;
+    return { w: Math.max(198, Math.ceil(Math.max(titleWidth, dimensionsWidth) / region.w)),
+      h: design.shape === 'diamond' ? 190 : 126 };
   }
   function isBoundary(node) { return ['input', 'output'].includes(node.kind) || ['placeholder', 'output'].includes(node.type); }
   function activeChildren(model, id, state) {
@@ -190,7 +192,8 @@
           inner.set(id, sub); sizes.set(id, { w: Math.max(240, sub.w + PAD * 2), h: sub.h + HEAD + PAD });
         } else {
           const n = model.nodes.get(id);
-          sizes.set(id, { w: Math.min(290, Math.max(174, nodeTitle(n).length * 7 + 38)), h: 112 });
+          const calls = model.calls.get(id), event = calls.length ? calls[calls.length - 1].event : {};
+          sizes.set(id, nodeSize(n, { inputs: n.inputs || event.inputs, outputs: n.outputs || event.outputs }));
         }
       }
       for (const e of activeEdges(model, state)) {
@@ -394,7 +397,7 @@
 
   // Pure graph behavior can also be verified without a browser or PyTorch.
   if (typeof module === 'object' && module.exports) {
-    module.exports = { prepareGraph, shapeSummary, edgeShapeSummary, firstShape, nodeType, nodeTitle, activeChildren, rankNodes, visibleOf, liftEdges, layoutGraph, edgeRoute, comparisonGraph };
+    module.exports = { prepareGraph, shapeSummary, edgeShapeSummary, firstShape, nodeType, nodeTitle, blockDesign, contentRegion, nodeSize, activeChildren, rankNodes, visibleOf, liftEdges, layoutGraph, edgeRoute, comparisonGraph };
     return;
   }
 
@@ -462,20 +465,6 @@
     if (value !== undefined) el.textContent = text(value);
     return el;
   }
-  function tone(id) {
-    const node = S.model.nodes.get(id);
-    if (node.kind === 'input' || node.type === 'placeholder') return 4;
-    if (node.kind === 'output' || node.type === 'output') return 5;
-    const family = [node.family, node.display_type, node.operation, node.module_path, node.label, node.type].map(text).join(' ').toLowerCase();
-    if (/encoder|embedding|conv/.test(family)) return 0;
-    if (/projector|projection|linear/.test(family)) return 1;
-    if (/conditioning|action/.test(family)) return 2;
-    if (/dynamics|predictor|attention/.test(family)) return 3;
-    if (node.evidence === 'traced') return node.type === 'placeholder' ? 4 : node.type === 'output' ? 5 : 1;
-    const chain = S.model.chains.get(id), branch = chain.length > 1 ? chain[1] : id;
-    const peers = chain.length > 1 ? S.model.children.get(chain[0]) : S.model.roots;
-    return Math.max(0, peers.indexOf(branch)) % 6;
-  }
   function lastOutput(id) {
     const n = S.model.nodes.get(id), calls = S.model.calls.get(id);
     return n.outputs || (calls.length ? calls[calls.length - 1].event.outputs : null);
@@ -484,35 +473,15 @@
     const n = S.model.nodes.get(id), calls = S.model.calls.get(id);
     return n.inputs || (calls.length ? calls[calls.length - 1].event.inputs : null);
   }
-  function nodeShape(node, box) {
-    let type = nodeType(node);
-    if (type === 'call_module' && node.module_path) {
-      const structural = [...S.model.nodes.values()].find(n => n.evidence !== 'traced' && n.module_path === node.module_path);
-      if (structural) type = nodeType(structural);
-    }
-    const w = box.w, h = box.h, symbol = text(node.shape_symbol).toLowerCase(), family = text(node.family).toLowerCase();
-    if (symbol === 'encoder') return svgEl('path', { d: 'M0 0 L' + w + ' ' + h * .18 + ' L' + w + ' ' + h * .82 + ' L0 ' + h + ' Z', class: 'av-shape' });
-    if (symbol === 'parallelogram') return svgEl('polygon', { points: '20,0 ' + w + ',0 ' + (w - 20) + ',' + h + ' 0,' + h, class: 'av-shape' });
-    if (symbol === 'trapezoid') return svgEl('polygon', { points: '18,0 ' + (w - 18) + ',0 ' + w + ',' + h + ' 0,' + h, class: 'av-shape' });
-    if (['linear', 'projection'].includes(family) || /linear|addmm|\.mm\b/i.test(type) || ['expand', 'contract', 'projector'].includes(symbol)) {
-      const input = firstShape(lastInput(node.id)), output = firstShape(lastOutput(node.id)), a = input?.at(-1), b = output?.at(-1);
-      if (['expand', 'contract'].includes(symbol) || (Number.isFinite(a) && Number.isFinite(b) && a !== b)) return svgEl('path', { d: (symbol === 'expand' || (symbol !== 'contract' && b > a))
-        ? 'M0 ' + h * .2 + ' L' + w + ' 0 L' + w + ' ' + h + ' L0 ' + h * .8 + ' Z'
-        : 'M0 0 L' + w + ' ' + h * .2 + ' L' + w + ' ' + h * .8 + ' L0 ' + h + ' Z', class: 'av-shape' });
-      return svgEl('rect', { width: w, height: h, rx: 10, class: 'av-shape' });
-    }
-    if (symbol === 'diamond' || symbol === 'loss') return svgEl('polygon', { points: w / 2 + ',0 ' + w + ',' + h / 2 + ' ' + w / 2 + ',' + h + ' 0,' + h / 2, class: 'av-shape' });
-    if (symbol === 'circle' || symbol === 'ellipse' || (!symbol && /attention/i.test(type))) return svgEl('ellipse', { cx: w / 2, cy: h / 2, rx: w / 2, ry: h / 2, class: 'av-shape' });
-    if (symbol === 'pill' || symbol === 'capsule') return svgEl('rect', { width: w, height: h, rx: h / 2, class: 'av-shape' });
-    if (isBoundary(node) || symbol === 'input' || symbol === 'output' || symbol === 'hexagon')
-      return svgEl('polygon', { points: '14,0 ' + (box.w - 14) + ',0 ' + box.w + ',' + box.h / 2 + ' ' + (box.w - 14) + ',' + box.h + ' 14,' + box.h + ' 0,' + box.h / 2, class: 'av-shape' });
-    if (/norm|relu|gelu|silu|sigmoid|softmax/i.test(type))
-      return svgEl('rect', { width: box.w, height: box.h, rx: 26, class: 'av-shape' });
-    if (!symbol && /conv\d[d]?/i.test(type)) return svgEl('path', { d: 'M0 0 L' + w + ' ' + h * .18 + ' L' + w + ' ' + h * .82 + ' L0 ' + h + ' Z', class: 'av-shape' });
-    if (symbol === 'rectangle') return svgEl('rect', { width: w, height: h, rx: 10, class: 'av-shape' });
-    if (node.type === 'call_function' || node.type === 'call_method')
-      return svgEl('ellipse', { cx: box.w / 2, cy: box.h / 2, rx: box.w / 2, ry: box.h / 2, class: 'av-shape' });
-    return svgEl('rect', { width: box.w, height: box.h, rx: 10, class: 'av-shape' });
+  function nodeShape(design, box) {
+    return svgEl('path', { d: Blocks.outline(design.shape, box.w, box.h), class: 'av-shape' });
+  }
+  function blockGlyph(design, x, y, size = 30) {
+    const group = svgEl('g', { class: 'av-glyph', transform: 'translate(' + x + ' ' + y + ')', 'aria-hidden': 'true' });
+    group.append(svgEl('circle', { cx: 0, cy: 0, r: size / 2, class: 'av-glyph-disc' }));
+    const paths = svgEl('g', { transform: 'translate(' + (-size * .36) + ' ' + (-size * .36) + ') scale(' + (size * .72 / 24) + ')' });
+    for (const d of Blocks.iconPaths(design.icon)) paths.append(svgEl('path', { d, class: 'av-glyph-mark' }));
+    group.append(paths); return group;
   }
   function hookNode(group, id) {
     group.addEventListener('pointerdown', event => {
@@ -529,32 +498,33 @@
     group.addEventListener('focus', () => select(id, false));
   }
   function drawNode(id, box) {
-    const node = S.model.nodes.get(id), title = nodeTitle(node), type = nodeType(node);
-    const group = svgEl('g', { class: 'av-node tone-' + tone(id), transform: 'translate(' + box.x + ' ' + box.y + ')',
-      tabindex: 0, role: 'button', 'aria-label': title + ', ' + type,
-      'data-node': id });
+    const node = S.model.nodes.get(id), design = blockDesign(node, { inputs: lastInput(id), outputs: lastOutput(id) });
+    const title = design.title;
+    const group = svgEl('g', { class: 'av-node', color: design.color, transform: 'translate(' + box.x + ' ' + box.y + ')',
+      tabindex: 0, role: 'button', 'aria-label': title,
+      'data-node': id, 'data-block': design.id });
     group.append(svgEl('title', {}, title + '\n' + text(node.module_path || id) + '\n' +
       (shapeSummary(lastInput(id)) || '—') + ' → ' + (shapeSummary(lastOutput(id)) || '—')));
     if (box.container) {
       group.append(svgEl('rect', { width: box.w, height: box.h, rx: 12, class: 'av-box' }));
       group.append(svgEl('rect', { width: box.w, height: HEAD, rx: 12, fill: 'transparent', class: 'av-box-head' }));
-      group.append(svgEl('text', { x: 15, y: 23, class: 'av-box-title' }, short(title, 40)));
-      group.append(svgEl('text', { x: 15, y: 41, class: 'av-box-sub' },
-        short(node.module_path || type, 28) + ' · ' + activeChildren(S.model, id, S).length + ' children'));
+      group.append(blockGlyph(design, 29, 27, 28));
+      group.append(svgEl('text', { x: 51, y: 23, class: 'av-box-title' }, short(title, Math.floor((box.w - 90) / 7))));
+      group.append(svgEl('text', { x: 51, y: 41, class: 'av-box-sub' },
+        design.category + ' · ' + activeChildren(S.model, id, S).length + ' children'));
     } else {
-      group.append(nodeShape(node, box));
-      group.append(svgEl('text', { x: 14, y: 25, class: 'av-title' }, short(title, Math.floor((box.w - 32) / 7))));
-      group.append(svgEl('text', { x: 14, y: 44, class: 'av-badge' }, short(title !== type ? type : node.operation || node.module_path || node.kind || type, 32)));
+      group.append(nodeShape(design, box));
+      const region = contentRegion(design.shape, box.w, box.h), caption = short(title, 48);
+      const rowX = (box.w - (Math.max(caption.length * 6.65, text(design.category).length * 5.4) + 36)) / 2;
+      group.append(blockGlyph(design, rowX + 15, region.y + 14));
+      group.append(svgEl('text', { x: rowX + 36, y: region.y + 9, class: 'av-title' }, caption));
+      group.append(svgEl('text', { x: rowX + 36, y: region.y + 25, class: 'av-badge' }, design.category));
       const input = shapeSummary(lastInput(id)), output = shapeSummary(lastOutput(id));
-      group.append(svgEl('text', { x: 14, y: 65, class: 'av-size' }, short(input ? 'in  ' + input : '', 36)));
-      group.append(svgEl('text', { x: 14, y: 83, class: 'av-size' }, short(output ? 'out ' + output : '', 36)));
-      const calls = S.model.calls.get(id).length;
-      const evidence = node.evidence === 'observed' ? 'runtime observed' : node.evidence === 'traced' ? 'FX traced'
-        : node.evidence === 'declared' ? 'declared' : calls ? calls + ' observed call' + (calls === 1 ? '' : 's') : 'structure';
-      group.append(svgEl('text', { x: 14, y: 102, class: 'av-badge' }, short(evidence + (node.parameters != null ? ' · ' + count(node.parameters) + ' params' : ''), 37)));
+      group.append(svgEl('text', { x: box.w / 2, y: region.y + region.h * .66, 'text-anchor': 'middle', class: 'av-size' }, 'in  ' + (input || '—')));
+      group.append(svgEl('text', { x: box.w / 2, y: region.y + region.h * .86, 'text-anchor': 'middle', class: 'av-size' }, 'out ' + (output || '—')));
     }
     if (activeChildren(S.model, id, S).length && !(S.projection === 'flow' && S.model.flowEdges.length && S.model.roots.includes(id))) {
-      const toggleEl = svgEl('g', { class: 'av-toggle', transform: 'translate(' + (box.w - 17) + ' 17)' });
+      const toggleEl = svgEl('g', { class: 'av-toggle', transform: 'translate(' + (box.w - 27) + ' ' + (box.container ? 25 : box.h / 2) + ')' });
       toggleEl.append(svgEl('circle', { r: 9 }), svgEl('text', { x: 0, y: 4, 'text-anchor': 'middle' }, box.container ? '−' : '+'));
       toggleEl.addEventListener('pointerdown', event => event.stopPropagation());
       toggleEl.addEventListener('click', event => { event.stopPropagation(); toggle(id); });
@@ -562,9 +532,15 @@
       group.setAttribute('aria-expanded', String(box.container));
     }
     if (S.mode === 'compare' && node.comparison) {
-      node.comparison.forEach((variant, index) => group.append(svgEl('rect', { x: -3 - index * 3, y: -3 - index * 3,
-        width: box.w + 6 + index * 6, height: box.h + 6 + index * 6, rx: 12, class: 'av-compare-ring tone-' + variant.tone })));
-      if (node.comparison_changes.length) group.append(svgEl('circle', { cx: box.w + 3, cy: 4, r: 6, class: 'av-diff-ring' }));
+      node.comparison.forEach((variant, index) => {
+        const inset = 4 + index * 3;
+        const ring = box.container ? svgEl('rect', { x: inset, y: inset, width: box.w - inset * 2,
+          height: box.h - inset * 2, rx: 10, class: 'av-compare-ring tone-' + variant.tone })
+          : svgEl('path', { d: Blocks.outline(design.shape, box.w - inset * 2, box.h - inset * 2),
+            transform: 'translate(' + inset + ' ' + inset + ')', class: 'av-compare-ring tone-' + variant.tone });
+        group.append(ring);
+      });
+      if (node.comparison_changes.length) group.append(svgEl('circle', { cx: box.w - 27, cy: box.container ? 43 : box.h / 2 + 19, r: 5, class: 'av-diff-ring' }));
     }
     hookNode(group, id); S.nodeEls.set(id, group);
     (box.container ? $('boxes') : $('nodes')).append(group);
@@ -707,9 +683,12 @@
   }
   function inspectNode(id) {
     const node = S.model.nodes.get(id), calls = S.model.calls.get(id), detail = $('detail');
-    $('detail-title').textContent = nodeTitle(node);
-    $('detail-summary').textContent = nodeType(node) + ' · ' + text(node.evidence || 'structural');
+    const design = blockDesign(node, { inputs: lastInput(id), outputs: lastOutput(id) });
+    $('detail-title').textContent = design.title;
+    $('detail-summary').textContent = design.category + ' · ' + text(node.evidence || 'structural');
     detail.replaceChildren();
+    detail.append(element('p', design.description, 'av-block-description'));
+    if (design.dimensional_change) detail.append(element('p', design.dimensional_change, 'av-dimension-hint'));
     const table = element('table', undefined, 'av-kv');
     addRow(table, 'ID', S.mode === 'compare' && node.comparison ? node.comparison[0].node.id : node.id);
     addRow(table, 'Path', node.module_path == null ? '—' : node.module_path || '(model root)');
@@ -763,6 +742,35 @@
         detail.append(item);
       }
     }
+  }
+  function renderGlossary() {
+    const query = $('glossary-search').value.trim().toLowerCase(), category = $('glossary-category').value;
+    const entries = Blocks.catalog.filter(entry => (!category || entry.category === category)
+      && (!query || [entry.label, entry.family, entry.category, entry.description].some(value => text(value).toLowerCase().includes(query))));
+    const target = $('glossary-results'); target.replaceChildren();
+    for (const entry of entries) {
+      const card = element('details', undefined, 'av-glossary-item'), summary = element('summary');
+      const sample = svgEl('svg', { viewBox: '0 0 112 70', class: 'av-block-sample', color: entry.color,
+        'aria-hidden': 'true', focusable: 'false', 'data-block': entry.id });
+      const outline = svgEl('g', { transform: 'translate(4 4)' });
+      outline.append(svgEl('path', { d: Blocks.outline(entry.shape, 104, 62), class: 'av-shape' }), blockGlyph(entry, 52, 31, 30));
+      sample.append(outline);
+      const caption = element('span', undefined, 'av-glossary-caption');
+      caption.append(element('strong', entry.label), element('span', entry.category));
+      summary.append(sample, caption); card.append(summary, element('p', entry.description));
+      target.append(card);
+    }
+    $('glossary-status').textContent = entries.length ? entries.length + ' of ' + Blocks.catalog.length + ' block types' : 'No block types match this search.';
+  }
+  function initGlossary() {
+    $('glossary-count').textContent = Blocks.catalog.length + ' types';
+    const categories = [...new Set(Blocks.catalog.map(entry => entry.category))];
+    categories.forEach(category => {
+      const option = element('option', category); option.value = category; $('glossary-category').append(option);
+    });
+    $('glossary-search').addEventListener('input', renderGlossary);
+    $('glossary-category').addEventListener('change', renderGlossary);
+    renderGlossary();
   }
   function search() {
     const query = $('search').value.trim().toLowerCase();
@@ -1132,6 +1140,7 @@
     await loadLibrary();
     if (panelMode) parent.postMessage({ type: 'naia-lens-ready' }, location.origin);
   }
+  initGlossary();
   loadGraph().catch(error => {
     $('mode').textContent = error.message; $('mode').classList.add('error');
   });

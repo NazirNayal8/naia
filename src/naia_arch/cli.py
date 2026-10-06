@@ -54,7 +54,8 @@ def make_handler(graph):
             if self.headers.get("Host") not in {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}:
                 self.send_error(403)
                 return
-            assets = {"/": ("index.html", "text/html"), "/viewer.js": ("viewer.js", "text/javascript"), "/style.css": ("style.css", "text/css")}
+            assets = {"/": ("index.html", "text/html"), "/viewer.js": ("viewer.js", "text/javascript"),
+                      "/blocks.js": ("blocks.js", "text/javascript"), "/style.css": ("style.css", "text/css")}
             if self.path == "/graph.json":
                 content, mime = json.dumps(graph, allow_nan=False).encode(), "application/json"
             elif self.path in assets:
