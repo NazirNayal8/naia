@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 
 from .schema import validate_graph
+from ._semantics import MAX_SEMANTICS_BYTES, _json, annotate_graph, parse_semantics
 
 
 MAX_ALIASES_BYTES = 64 * 1024
@@ -81,6 +82,11 @@ def add_graph_commands(p):
     view.add_argument("--port", type=int, default=8768)
     validate = commands.add_parser("validate")
     validate.add_argument("graph")
+    annotate = commands.add_parser("annotate", help="Add cited module/boundary names to an unchanged capture")
+    annotate.add_argument("graph")
+    annotate.add_argument("--semantics", required=True, metavar="JSON|@FILE",
+                          help="Exact node IDs mapped to name, evidence citations, and optional role")
+    annotate.add_argument("--output", required=True, help="New graph filename; existing files are never overwritten")
     capture = commands.add_parser("capture")
     capture.add_argument("--factory", required=True, help="Trusted module:function returning (model, example_args, example_kwargs)")
     capture.add_argument("--output", required=True)
@@ -93,6 +99,8 @@ def add_graph_commands(p):
                           help="Record module hierarchy only; do not run the sample forward")
     capture.add_argument("--aliases", metavar="JSON|@FILE",
                          help='Module-path labels, for example {"encoder":"Token encoder"} or @labels.json')
+    capture.add_argument("--semantics", metavar="JSON|@FILE",
+                         help="Explicit cited descriptions for exact module/input/output node IDs")
     return commands
 
 
@@ -102,27 +110,48 @@ def parser():
     return p
 
 
+def _write_graph(output, graph):
+    # Serialize before creating the destination; invalid JSON cannot leave a
+    # partial graph. Exclusive creation also closes the output-exists race.
+    content = json.dumps(graph, indent=2, allow_nan=False)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("x", encoding="utf-8") as stream:
+        stream.write(content)
+
+
 def dispatch(args):
     """Also used by `naia arch`; graph commands do not require project onboarding."""
     try:
+        if args.action == "annotate":
+            output = Path(args.output)
+            if output.exists() or output.is_symlink():
+                raise ValueError("Output exists; choose a new graph filename")
+            semantics = parse_semantics(args.semantics)
+            graph = validate_graph(_json(Path(args.graph).read_text(encoding="utf-8")))
+            graph = annotate_graph(graph, semantics)
+            _write_graph(output, graph)
+            print(json.dumps({"graph": str(output), "annotated": len(semantics)}))
+            return 0
         if args.action == "capture":
             from . import capture as capture_model
             output = Path(args.output)
-            if output.exists():
+            if output.exists() or output.is_symlink():
                 raise ValueError("Output exists; choose a new graph filename")
             aliases = parse_aliases(getattr(args, "aliases", None))
+            semantics = parse_semantics(getattr(args, "semantics", None))
             module, separator, function = args.factory.partition(":")
             if not separator or not module or not function:
                 raise ValueError("Factory must be module:function")
             sys.path.insert(0, str(Path.cwd()))
             model, example_args, example_kwargs = getattr(importlib.import_module(module), function)()
             structure_only = getattr(args, "structure_only", False)
+            options = {"trace": False if structure_only else args.trace, "aliases": aliases}
+            if semantics is not None:
+                options["semantics"] = semantics
             graph = capture_model(model, None if structure_only else example_args,
                                   None if structure_only else example_kwargs,
-                                  trace=False if structure_only else args.trace, aliases=aliases)
-            output.parent.mkdir(parents=True, exist_ok=True)
-            with output.open("x", encoding="utf-8") as stream:
-                json.dump(graph, stream, indent=2, allow_nan=False)
+                                  **options)
+            _write_graph(output, graph)
             print(json.dumps({"graph": str(output), "mode": graph["capture_mode"]}))
             return 0
         graph = validate_graph(json.loads(Path(args.graph).read_text()))

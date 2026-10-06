@@ -119,6 +119,26 @@ class CaptureCLIFlowTest(unittest.TestCase):
                 self.assertFalse(self.output.exists())
         self.builder.assert_not_called()
 
+    def test_capture_semantics_are_data_only_and_forwarded_without_replacing_aliases(self):
+        semantics = {"root": {"name": "Predictor", "evidence": ["model.py:10: returns predicted state"]}}
+        code, _, captured, _, stderr = self.run_capture("--semantics", json.dumps(semantics))
+        self.assertEqual(code, 0, stderr)
+        captured.assert_called_once_with(self.model, self.example_args, self.example_kwargs,
+                                         trace=True, aliases={}, semantics=semantics)
+
+    def test_invalid_semantics_fail_before_factory_import_or_execution(self):
+        for value in ("{}", "[]", '{"root":{"name":"Predictor","evidence":[]}}',
+                      '{"root":{"name":"A","name":"B","evidence":["model.py:1"]}}',
+                      '{"root":NaN}', " " * (64 * 1024 + 1)):
+            with self.subTest(value=value[:100]):
+                code, imported, captured, _, stderr = self.run_capture("--semantics", value)
+                self.assertEqual(code, 2)
+                self.assertIn("error", json.loads(stderr))
+                imported.assert_not_called()
+                captured.assert_not_called()
+                self.assertFalse(self.output.exists())
+        self.builder.assert_not_called()
+
     def test_existing_graph_is_never_overwritten_or_recaptured(self):
         self.output.write_text("Existing immutable evidence", encoding="utf-8")
         code, imported, captured, _, stderr = self.run_capture()
@@ -145,15 +165,17 @@ class ArchitectureAssistantFlowTest(unittest.TestCase):
         example = text.split("```bash\n", 1)[1].split("\n```", 1)[0]
         commands = [shlex.split(line) for line in example.splitlines() if line.strip()]
         self.assertEqual([command[:3] for command in commands],
-                         [["naia", "arch", "capture"], ["naia", "arch", "validate"],
+                         [["naia", "arch", "capture"], ["naia", "arch", "annotate"], ["naia", "arch", "validate"],
                           ["naia", "arch", "add"], ["naia", "ui"]])
         arguments = [workflow_parser().parse_args(command[1:]) for command in commands]
         self.assertEqual(arguments[0].output, arguments[1].graph)
-        self.assertEqual(arguments[1].graph, arguments[2].graph)
+        self.assertEqual(arguments[1].output, arguments[2].graph)
+        self.assertEqual(arguments[2].graph, arguments[3].graph)
+        self.assertIn("--semantics", commands[1])
         for argument in ("--factory", "--output"):
             self.assertIn(argument, commands[0])
         for argument in ("--graph", "--title"):
-            self.assertIn(argument, commands[2])
+            self.assertIn(argument, commands[3])
         for phrase in ("Tensor tracing is on by default", "do not silently substitute",
                        "`--no-trace`", "`--structure-only`", "Verify input-to-output connectivity",
                        "branches/residuals", "representative shapes against the forward code",
@@ -174,6 +196,13 @@ class ArchitectureAssistantFlowTest(unittest.TestCase):
                        "image glyphs need explicit image/layout metadata",
                        "expansion/contraction glyphs need verified dimensions",
                        "unfamiliar custom modules must not be guessed from their class names",
+                       "semantic names for major project components and inputs/outputs",
+                       "ask the user when a role or boundary meaning is uncertain",
+                       "never guess from a class name, module path, or tensor size alone",
+                       "exact captured node ids", "nonempty `evidence` citations",
+                       "semantics are interpretive labels, not measured computation",
+                       "old `--aliases` alone does not establish semantic meaning",
+                       "save a new annotated graph instead of overwriting",
                        "tensor dimensions", "intermediate sizes", "observed, traced, and declared",
                        "hook order do not prove dependencies", "cited source/config evidence", "not invented flow",
                        "separate graph files and ids", "never run factories from the browser"):

@@ -182,6 +182,28 @@ Sample capture records tensor dependencies by default; results cover that input 
 `--trace` remains a compatibility flag. `--no-trace` records calls and shapes without
 dataflow; `--structure-only` skips the sample forward entirely. The factory still runs.
 `--aliases '{"encoder":"Token encoder"}'` or `--aliases @labels.json` supplies module-path labels.
+These aliases stay in the inspector. For major components and meaningful inputs/outputs,
+your assistant infers short names from project sources and asks you when the meaning is unclear.
+It records those names separately from measured layer types and dependencies:
+
+```bash
+naia arch annotate graph.json --semantics @semantics.json --output named-graph.json
+naia arch validate named-graph.json
+```
+
+`semantics.json` maps exact captured node IDs to source-grounded names, for example:
+
+```json
+{
+  "module:encoder": {"name": "Visual encoder", "role": "encoder", "evidence": ["models/world.py:42 defines the observation encoder"]},
+  "input:0": {"name": "Observation frames", "evidence": ["models/world.py:56 documents the observation input"]}
+}
+```
+
+Use actual IDs and citations, not these illustrative references. Only major modules and
+boundaries need semantic names; primitive layers remain type-based. Annotation writes a
+new graph without running the model or changing captured flow. Capture also accepts
+`--semantics JSON|@FILE`. Register the named graph under a new ID; never replace registered evidence.
 Playback shows saved calls or dependencies, not timing. Capture limits and fallback warnings stay in the graph.
 Standalone viewing opens at `http://127.0.0.1:8768`; `--port` changes it.
 

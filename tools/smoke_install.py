@@ -54,7 +54,7 @@ def main():
                            check=True, capture_output=True, text=True)
         graph = root / "graph.json"
         graph.write_text(json.dumps({"schema_version": 1,
-                                     "nodes": [{"id": "model", "parent": None}],
+                                     "nodes": [{"id": "model", "parent": None, "kind": "module"}],
                                      "edges": [], "events": []}))
         result = json.loads(run("arch", "validate", str(graph)).stdout)
         if result != {"valid": True, "nodes": 1}:
@@ -63,6 +63,16 @@ def main():
             raise RuntimeError("Standalone validation unexpectedly initialized a project")
         subprocess.run([str(commands["naia-arch"]), "validate", str(graph)], cwd=root,
                        env=environment, check=True, capture_output=True, text=True)
+        named_graph = root / "named-graph.json"
+        semantics = {"model": {"name": "Dynamics model", "role": "predictor",
+                               "evidence": ["Installed smoke fixture explicitly defines the model role"]}}
+        original = graph.read_bytes()
+        run("arch", "annotate", str(graph), "--semantics", json.dumps(semantics),
+            "--output", str(named_graph))
+        if (json.loads(named_graph.read_text())["nodes"][0]["semantic"] != semantics["model"]
+                or graph.read_bytes() != original or (root / ".lab").exists()):
+            raise RuntimeError("Standalone semantic annotation changed captured evidence or initialized a project")
+        run("arch", "validate", str(named_graph))
         onboarding = root / "onboarding"
         initialized = json.loads(run("--project", str(onboarding), "init", "--assistant", "both").stdout)
         role_questions = [question for question in initialized["questions"]
@@ -104,7 +114,7 @@ def main():
                 or architectures[0]["task"] != "REVIEW-DEMO"
                 or not architectures[0]["available"]):
             raise RuntimeError("Project architecture did not link to its suite and review task")
-    print("Unified installation, MIT licensing, assets, command/import aliases, architecture viewing, onboarding, auto-evaluation, and reuse: OK")
+    print("Unified installation, MIT licensing, assets, command/import aliases, architecture annotation/viewing, onboarding, auto-evaluation, and reuse: OK")
 
 
 if __name__ == "__main__":

@@ -222,7 +222,7 @@ def dispatch(args):
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
-        if args.command in ("arch", "lens") and args.action in ("capture", "view", "validate"):
+        if args.command in ("arch", "lens") and args.action in ("capture", "annotate", "view", "validate"):
             from naia_arch.cli import dispatch as graph_command
             return graph_command(args)
         result = dispatch(args)

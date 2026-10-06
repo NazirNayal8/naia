@@ -8,6 +8,7 @@ import random
 import sys
 
 from ._describe import describe_module, describe_operation
+from ._semantics import annotate_graph, validate_semantics
 from .schema import validate_graph
 
 
@@ -69,14 +70,17 @@ def _input_names(model, args, kwargs):
         return {}
 
 
-def capture(model, example_args=None, example_kwargs=None, *, aliases=None, trace=True, max_nodes=10000):
+def capture(model, example_args=None, example_kwargs=None, *, aliases=None, semantics=None, trace=True, max_nodes=10000):
     """Return shape/type metadata and observed tensor dependencies, never values.
 
     Execution uses an eval-mode deep copy, copied inputs, no_grad and restored
     RNG state. ``trace=False`` retains hierarchy plus observed module calls.
     ``max_nodes`` caps runtime operations; boundaries/hierarchy remain available.
+    ``semantics`` maps exact module/boundary IDs to explicit, cited descriptions.
     Model Python code is trusted; capture is not a sandbox for external effects.
     """
+    if semantics is not None:
+        validate_semantics(semantics)
     try:
         import torch
     except ImportError as exc:
@@ -108,7 +112,7 @@ def capture(model, example_args=None, example_kwargs=None, *, aliases=None, trac
     if example_args is None:
         if trace:
             graph["warnings"].append("Runtime data-flow tracing requires sample inputs")
-        return validate_graph(graph)
+        return annotate_graph(graph, semantics) if semantics is not None else validate_graph(graph)
     args = example_args if isinstance(example_args, tuple) else (example_args,)
     kwargs = example_kwargs or {}
     device_tensors = [*model.parameters(), *model.buffers(), *_tensor_leaves(torch, (args, kwargs))]
@@ -171,7 +175,7 @@ def capture(model, example_args=None, example_kwargs=None, *, aliases=None, trac
         graph["warnings"].append("Observed module calls do not establish tensor data-flow edges; enable tracing for those dependencies")
     elif runtime_type is None:
         _fx_fallback(torch, model, args, kwargs, aliases, graph, devices, max_nodes)
-    return validate_graph(graph)
+    return annotate_graph(graph, semantics) if semantics is not None else validate_graph(graph)
 
 
 def _fx_fallback(torch, model, args, kwargs, aliases, graph, devices, max_nodes):

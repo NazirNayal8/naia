@@ -51,7 +51,46 @@
     if (['conv', 'conv_transpose'].includes(design.id)) title = title.replace(/\s+\d+(?:×\d+)*$/, '');
     return title;
   }
-  function nodeTitle(node) { return compactTitle(blockDesign(node)); }
+  function semanticAnnotation(node) {
+    if (node.semantic === undefined) return null;
+    const value = node.semantic, invalid = reason => { throw Error('Invalid semantic annotation for ' + text(node.id || 'component') + ': ' + reason + '.'); };
+    if (!value || typeof value !== 'object' || Array.isArray(value)) invalid('expected an object');
+    if (Object.keys(value).some(key => !['name', 'evidence', 'role'].includes(key))) invalid('unknown annotation field');
+    if (!['module', 'input', 'output', 'call_module', 'placeholder'].includes(node.kind) && !['call_module', 'placeholder', 'output'].includes(node.type))
+      invalid('only modules and input/output boundaries can be named');
+    // Match the capture schema's printable Unicode text (ordinary ASCII spaces
+    // are allowed; controls, format characters and other separators are not).
+    const printable = item => !/[\p{C}\p{Z}]/u.test(item.replace(/ /g, ''));
+    const concise = (field, limit) => {
+      const item = value[field];
+      if (typeof item !== 'string' || !item.trim() || Array.from(item).length > limit || !printable(item))
+        invalid(field + ' must be nonempty printable text of at most ' + limit + ' characters');
+      return item.trim();
+    };
+    const name = concise('name', 80);
+    if (!Array.isArray(value.evidence) || !value.evidence.length || value.evidence.length > 16 || value.evidence.some(item =>
+      typeof item !== 'string' || !item.trim() || Array.from(item).length > 512 || !printable(item)))
+      invalid('evidence must contain 1–16 nonempty printable source or user-confirmation citations of at most 512 characters');
+    const result = { name, evidence: value.evidence.map(item => item.trim()) };
+    if (value.role !== undefined) result.role = concise('role', 64);
+    return result;
+  }
+  function nodeTitle(node, evidence = {}) { return semanticAnnotation(node)?.name || compactTitle(blockDesign(node, evidence)); }
+  function nodeSearchValues(node) {
+    const semantic = semanticAnnotation(node);
+    return [node.id, node.label, node.type, node.display_type, node.family, node.operation, node.module_path,
+      nodeTitle(node), semantic?.role, ...(semantic?.evidence || []),
+      ...(node.comparison || []).flatMap(variant => nodeSearchValues(variant.node))];
+  }
+  function comparisonSemantic(variants) {
+    const records = variants.map(variant => semanticAnnotation(variant.node));
+    if (!records.length || records.some(record => !record || record.name !== records[0].name)) return null;
+    // The name is shared; keep one complete valid evidence record here and
+    // retain every capture's annotation in comparison[] for the inspector.
+    const result = { name: records[0].name, evidence: [...records[0].evidence] };
+    if (records[0].role !== undefined && records.every(record => record.role === records[0].role)) result.role = records[0].role;
+    return result;
+  }
   function contentRegion(shape, w, h) {
     // The text stays in the central interior even for pointed or curved outlines.
     const pointed = shape === 'diamond', curved = ['circle', 'ellipse', 'attention', 'arithmetic', 'merge'].includes(shape);
@@ -70,7 +109,7 @@
     return { w: 78, h: 54 };
   }
   function nodeSize(node, evidence = {}) {
-    const design = blockDesign(node, evidence), title = compactTitle(design);
+    const design = blockDesign(node, evidence), title = nodeTitle(node, evidence);
     const representation = (typeof Blocks.pictogram === 'function' ? Blocks.pictogram(node, evidence) : null) || {};
     const size = glyphSize(design, representation), w = Math.max(size.w + 12, title.length * 6.65 + 14);
     return { w, h: size.h + CAPTION_H, glyph: { x: (w - size.w) / 2, y: 0, ...size } };
@@ -118,6 +157,7 @@
     const model = { data, nodes: new Map(), children: new Map(), roots: [], chains: new Map(), calls: new Map(), fxModules: new Map() };
     for (const n of data.nodes) {
       if (!n || typeof n.id !== 'string' || !n.id || model.nodes.has(n.id)) throw Error('Invalid component identity.');
+      semanticAnnotation(n);
       model.nodes.set(n.id, n); model.children.set(n.id, []); model.calls.set(n.id, []);
     }
     for (const n of data.nodes) {
@@ -231,7 +271,7 @@
       for (const id of kids) {
         if (expanded(model, id, state)) {
           const sub = group(id, activeChildren(model, id, state));
-          inner.set(id, sub); sizes.set(id, { w: Math.max(240, sub.w + PAD * 2), h: sub.h + HEAD + PAD });
+          inner.set(id, sub); sizes.set(id, { w: Math.max(240, sub.w + PAD * 2, nodeTitle(model.nodes.get(id)).length * 6.65 + 84), h: sub.h + HEAD + PAD });
         } else {
           sizes.set(id, nodeSize(model.nodes.get(id), nodeEvidence(model, id)));
         }
@@ -422,7 +462,7 @@
         if (!changes.has(id)) changes.set(id, []);
         changes.get(id).push({ type: n.type, display_type: n.display_type, family: n.family, shape_symbol: n.shape_symbol,
           operation: n.operation, config: n.config, inputs: n.inputs, parameters: n.parameters, outputs, parent,
-          shared_with: n.shared_with ? ids.get(n.shared_with) : null });
+          shared_with: n.shared_with ? ids.get(n.shared_with) : null, semantic: n.semantic });
       }
       for (const e of capture.data.edges || []) edges.push({ ...e, source: ids.get(e.source), target: ids.get(e.target),
         comparison_id: capture.id, comparison_tone: tones[index % tones.length] });
@@ -430,9 +470,11 @@
     });
     for (const [id, node] of byId) {
       const records = changes.get(id);
-      node.comparison_changes = ['type', 'display_type', 'family', 'shape_symbol', 'operation', 'config', 'inputs', 'parameters', 'outputs', 'parent', 'shared_with']
+      node.comparison_changes = ['type', 'display_type', 'family', 'shape_symbol', 'operation', 'config', 'inputs', 'parameters', 'outputs', 'parent', 'shared_with', 'semantic']
         .filter(key => new Set(records.map(record => stable(record[key]))).size > 1);
       if (node.comparison.length < captures.length) node.comparison_changes.unshift('presence');
+      const semantic = comparisonSemantic(node.comparison);
+      if (semantic) node.semantic = semantic; else delete node.semantic;
     }
     const playback = captures.find(capture => capture.id === playbackId) || captures[0];
     const events = (playback.data.events || []).map(event => ({ ...event, node: maps.get(playback.id).get(event.node) }));
@@ -442,7 +484,7 @@
 
   // Pure graph behavior can also be verified without a browser or PyTorch.
   if (typeof module === 'object' && module.exports) {
-    module.exports = { prepareGraph, shapeSummary, edgeShapeSummary, firstShape, nodeType, nodeTitle, compactTitle, blockDesign, contentRegion, glyphSize, nodeSize, nodePortBox, nodeEvidence, tensorLabelLines, activeChildren, rankNodes, visibleOf, liftEdges, layoutGraph, edgeRoute, comparisonGraph };
+    module.exports = { prepareGraph, shapeSummary, edgeShapeSummary, firstShape, nodeType, nodeTitle, compactTitle, semanticAnnotation, nodeSearchValues, comparisonSemantic, blockDesign, contentRegion, glyphSize, nodeSize, nodePortBox, nodeEvidence, tensorLabelLines, activeChildren, rankNodes, visibleOf, liftEdges, layoutGraph, edgeRoute, comparisonGraph };
     return;
   }
 
@@ -571,11 +613,11 @@
   }
   function drawNode(id, box) {
     const node = S.model.nodes.get(id), evidence = nodeEvidence(S.model, id), design = blockDesign(node, evidence);
-    const title = compactTitle(design), representation = (typeof Blocks.pictogram === 'function' ? Blocks.pictogram(node, evidence) : null) || {};
+    const title = nodeTitle(node, evidence), representation = (typeof Blocks.pictogram === 'function' ? Blocks.pictogram(node, evidence) : null) || {};
     const group = svgEl('g', { class: 'av-node', color: representation.color || design.color, transform: 'translate(' + box.x + ' ' + box.y + ')',
       tabindex: 0, role: 'button', 'aria-label': title,
       'data-node': id, 'data-block': design.id });
-    group.append(svgEl('title', {}, title + '\n' + text(node.module_path || id) + '\n' +
+    group.append(svgEl('title', {}, title + (node.semantic ? '\n' + design.title : '') + '\n' + text(node.module_path || id) + '\n' +
       (shapeSummary(lastInput(id)) || '—') + ' → ' + (shapeSummary(lastOutput(id)) || '—')));
     if (!box.container) group.append(svgEl('rect', { width: box.w, height: box.h, class: 'av-node-hit' }));
     if (box.container) {
@@ -768,15 +810,24 @@
   function inspectNode(id) {
     const node = S.model.nodes.get(id), calls = S.model.calls.get(id), detail = $('detail');
     const design = blockDesign(node, { inputs: lastInput(id), outputs: lastOutput(id) });
-    $('detail-title').textContent = design.title;
+    const semantic = semanticAnnotation(node);
+    $('detail-title').textContent = semantic?.name || design.title;
     $('detail-summary').textContent = design.category + ' · ' + text(node.evidence || 'structural');
     detail.replaceChildren();
     detail.append(element('p', design.description, 'av-block-description'));
     if (design.dimensional_change) detail.append(element('p', design.dimensional_change, 'av-dimension-hint'));
     const table = element('table', undefined, 'av-kv');
+    if (semantic) {
+      addRow(table, 'Semantic name', semantic.name);
+      if (semantic.role) addRow(table, 'Semantic role', semantic.role);
+      const row = element('tr'), cell = element('td');
+      semantic.evidence.forEach(citation => cell.append(element('div', citation)));
+      row.append(element('th', node.comparison ? 'Evidence (first capture)' : 'Semantic evidence'), cell); table.append(row);
+    }
+    addRow(table, 'Computational type', design.title);
     addRow(table, 'ID', S.mode === 'compare' && node.comparison ? node.comparison[0].node.id : node.id);
     addRow(table, 'Path', node.module_path == null ? '—' : node.module_path || '(model root)');
-    if (node.label && node.label !== nodeTitle(node)) addRow(table, 'Name', node.label);
+    if (node.label && (semantic || node.label !== nodeTitle(node))) addRow(table, semantic ? 'Alias' : 'Name', node.label);
     if (node.operation) addRow(table, 'Operation', node.operation);
     if (node.schema) addRow(table, 'Schema', node.schema);
     addRow(table, 'Parameters', node.parameters == null ? '—' : count(node.parameters));
@@ -789,12 +840,13 @@
     if (S.mode === 'compare' && node.comparison) {
       detail.append(element('h3', 'Captured differences'));
       detail.append(element('p', node.comparison_changes.length ? node.comparison_changes.join(', ') : 'Matching recorded metadata', 'av-note'));
+      if (semantic) detail.append(element('p', 'The semantic name is shared; each capture’s complete annotation appears below.', 'av-note'));
       for (const variant of node.comparison) {
         const card = element('div', undefined, 'av-variant tone-' + variant.tone);
         card.append(element('strong', variant.title), jsonBlock({ type: variant.node.type, display_type: variant.node.display_type,
           family: variant.node.family, shape_symbol: variant.node.shape_symbol, operation: variant.node.operation,
           config: variant.node.config, inputs: variant.node.inputs, parameters: variant.node.parameters,
-          outputs: variant.outputs, parent: variant.node.parent, observed_calls: variant.observed_calls }));
+          semantic: variant.node.semantic ?? null, outputs: variant.outputs, parent: variant.node.parent, observed_calls: variant.observed_calls }));
         detail.append(card);
       }
     }
@@ -858,7 +910,7 @@
   function search() {
     const query = $('search').value.trim().toLowerCase();
     S.matches = query ? [...S.model.nodes.values()].filter(n => (S.projection !== 'flow' || !S.model.flowEdges.length || S.model.flowNodes.has(n.id))
-      && [n.id, n.label, n.type, n.display_type, n.family, n.operation, n.module_path].some(v => text(v).toLowerCase().includes(query))).map(n => n.id) : [];
+      && nodeSearchValues(n).some(v => text(v).toLowerCase().includes(query))).map(n => n.id) : [];
     S.matchIndex = -1; $('search-status').textContent = query ? S.matches.length + ' matches' : '';
     $('search-next').disabled = !S.matches.length; renderSelection();
     panelControl('search', $('search').value);

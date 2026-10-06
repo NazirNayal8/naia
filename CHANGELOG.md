@@ -1,5 +1,19 @@
 # Release notes
 
+## 0.1.0a6
+
+- Project-aware names for major components and inputs/outputs, with cited evidence in the inspector.
+- Assistant instructions infer meanings from project sources and ask when uncertain;
+  internal layers keep type-based labels.
+- `naia arch annotate` adds names to an existing capture without rerunning the model
+  or changing its connections and tensor sizes. Capture also accepts `--semantics`.
+- Semantic names work across hierarchy, search, comparisons, both themes, and SVG export.
+
+Existing projects refresh managed instructions with `naia instructions install` after upgrading.
+Previously saved graphs need annotations to show semantic names.
+
+Verified: 212 tests, browser checks, package builds, and isolated installation.
+
 ## 0.1.0a5
 
 - Compact layer pictograms and short type captions replace information cards.

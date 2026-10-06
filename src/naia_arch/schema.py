@@ -1,4 +1,5 @@
 """Configuration-independent hierarchy and tensor dependency evidence."""
+from ._semantics import supports_semantic, validate_semantic
 
 
 def validate_graph(graph):
@@ -13,6 +14,10 @@ def validate_graph(graph):
             raise ValueError("Node identities must be nonempty and unique")
         if node.get("parent") is not None and not isinstance(node["parent"], str):
             raise ValueError("Node parent must be an identity or null")
+        if "semantic" in node:
+            if not supports_semantic(node):
+                raise ValueError("Semantic annotations require a module, input, or output node")
+            validate_semantic(node["semantic"])
         by_id[node["id"]] = node
     for node in nodes:
         seen = {node["id"]}

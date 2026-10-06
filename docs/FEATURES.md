@@ -153,7 +153,7 @@ Architecture tab. Registration needs an initialized project, not completed launc
 onboarding. It validates a graph inside the project and stores a read-only path reference
 and checksum. Keep that file unchanged; revisions need a new graph and ID.
 
-Standalone `naia arch capture`, `validate`, and `view` work without project setup.
+Standalone `naia arch capture`, `annotate`, `validate`, and `view` work without project setup.
 The standalone viewer uses `http://127.0.0.1:8768`; the dashboard uses port `8767`.
 The browser reads saved graphs and does not run factories or capture training runs.
 Drag nodes and arrow bends, pan/zoom, switch hierarchy levels, search, inspect module
@@ -163,7 +163,12 @@ Module enumeration records hierarchy; hooks record calls and shapes. Sample capt
 records runtime tensor dependencies by default, with best-effort FX fallback. Observed,
 traced, and explicitly declared evidence remain distinct; hook order alone does not prove flow.
 Use `--no-trace` for calls/shapes only, `--structure-only` to skip the sample forward, and
-`--aliases` for readable module-path labels. The factory still runs in either mode.
+`--aliases` for inspector-only module-path labels. The factory still runs in either mode.
+
+Your assistant gives major components and boundaries concise, project-aware names from
+source evidence, asking when meaning is uncertain. Primitive layers stay type-based.
+`naia arch annotate` adds those names and their citations to a new graph without running
+the model or changing measured flow; the inspector preserves original types and paths.
 
 Capture runs copies of the model and inputs in evaluation mode, without gradients.
 Use small inputs and a new output filename. Calls and shapes describe the supplied
