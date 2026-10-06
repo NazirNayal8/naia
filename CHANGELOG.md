@@ -1,5 +1,17 @@
 # Release notes
 
+## 0.1.0a3
+
+- Optional, user-confirmed roles for Codex and Claude: peers, either lead/support direction,
+  or custom responsibilities and boundaries, reflected in each assistant's instruction file.
+- Role updates preserve existing project settings and instructions, with rollback on write failure.
+- Explicit assistant workflow for adding models to Lens: inspect, capture, validate, register,
+  and verify access in the Architecture tab.
+
+Existing projects refresh managed instructions with `naia instructions install` after upgrading.
+
+Verified: 165 tests, package builds, and isolated installation.
+
 ## 0.1.0a2
 
 - Sample capture follows tensor dependencies by default, including branches and residual updates.

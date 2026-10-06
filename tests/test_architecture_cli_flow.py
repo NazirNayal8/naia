@@ -3,6 +3,7 @@ from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
 from pathlib import Path
+import shlex
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -12,8 +13,9 @@ from unittest.mock import Mock, patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from naia.cli import parser as workflow_parser
-from naia.context import ASSISTANT_RULES, Project
+from naia.cli import main as workflow_main, parser as workflow_parser
+from naia.context import ASSISTANT_RULES, INSTRUCTIONS_BEGIN, INSTRUCTIONS_END, Project
+from naia.tasks import Tasks
 import naia_arch
 import naia_arch.cli as architecture_cli
 from naia_arch.cli import dispatch, parse_aliases, parser
@@ -139,6 +141,29 @@ class CaptureCLIFlowTest(unittest.TestCase):
 
 
 class ArchitectureAssistantFlowTest(unittest.TestCase):
+    def assert_model_visualization_workflow(self, text):
+        example = text.split("```bash\n", 1)[1].split("\n```", 1)[0]
+        commands = [shlex.split(line) for line in example.splitlines() if line.strip()]
+        self.assertEqual([command[:3] for command in commands],
+                         [["naia", "arch", "capture"], ["naia", "arch", "validate"],
+                          ["naia", "arch", "add"], ["naia", "ui"]])
+        arguments = [workflow_parser().parse_args(command[1:]) for command in commands]
+        self.assertEqual(arguments[0].output, arguments[1].graph)
+        self.assertEqual(arguments[1].graph, arguments[2].graph)
+        for argument in ("--factory", "--output"):
+            self.assertIn(argument, commands[0])
+        for argument in ("--graph", "--title"):
+            self.assertIn(argument, commands[2])
+        for phrase in ("Tensor tracing is on by default", "do not silently substitute",
+                       "`--no-trace`", "`--structure-only`", "Verify input-to-output connectivity",
+                       "branches/residuals", "representative shapes against the forward code",
+                       "Schema validity alone", "Flag unknown shapes and partial capture",
+                       "Never overwrite registered graphs", "Architecture tab",
+                       "`naia instructions install`",
+                       "package upgrades alone do not refresh project files"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, text)
+
     def test_rules_require_source_grounded_flow_and_preserve_execution_boundaries(self):
         text = ASSISTANT_RULES.lower()
         for phrase in ("permitted model, config, and forward", "sample-input shapes", "uncertain details",
@@ -148,6 +173,77 @@ class ArchitectureAssistantFlowTest(unittest.TestCase):
                        "separate graph files and ids", "never run factories from the browser"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, text)
+
+    def test_each_assistant_selection_installs_ordered_visualization_workflow(self):
+        selections = {"codex": {"AGENTS.md"}, "claude": {"CLAUDE.md"},
+                      "both": {"AGENTS.md", "CLAUDE.md"}}
+        with tempfile.TemporaryDirectory() as directory:
+            for choice, expected in selections.items():
+                with self.subTest(assistant=choice):
+                    project = Project(Path(directory) / choice)
+                    project.initialize(assistant=choice, scan=False)
+                    self.assertEqual(project.load()["assistants"]["selection"], choice)
+                    self.assertEqual({path.name for path in project.root.glob("*.md")}, expected)
+                    for filename in expected:
+                        self.assert_model_visualization_workflow((project.root / filename).read_text())
+
+    def test_refresh_stale_selected_blocks_preserves_project_and_unselected_files(self):
+        selections = {"codex": {"AGENTS.md"}, "claude": {"CLAUDE.md"},
+                      "both": {"AGENTS.md", "CLAUDE.md"}}
+        prefix = "User rules: café.\r\nKeep trailing spaces.  \r\n\r\n"
+        suffix = "\r\n\r\nFinal user restriction: λ.\r\n"
+        with tempfile.TemporaryDirectory() as directory:
+            for choice, selected in selections.items():
+                with self.subTest(assistant=choice):
+                    project = Project(Path(directory) / choice)
+                    project.initialize(assistant=choice, scan=False)
+                    project.answer("project", {"goal": "Inspect the existing model"}, confirmed=True)
+                    project.answer("evaluation", {"metrics": ["score"]}, confirmed=False)
+                    project.configure_backend("local", {"kind": "local", "command_python": "/existing/python"},
+                                              confirmed=True)
+                    tasks = Tasks(project)
+                    tasks.add("REVIEW-MODEL", "Inspect model evidence", "Check the sample flow",
+                              "Choose whether the capture is sufficient", owner="researcher", top=True)
+                    context_before = project.context_path.read_bytes()
+                    tasks_before = tasks.path.read_bytes()
+                    unselected_before = {}
+                    for filename in ("AGENTS.md", "CLAUDE.md"):
+                        path = project.root / filename
+                        if filename in selected:
+                            text = prefix + INSTRUCTIONS_BEGIN + "\nStale visualization rules.\n" + INSTRUCTIONS_END + suffix
+                        else:
+                            text = "Unselected assistant's own rules.\r\nKeep these bytes.  \r\n"
+                        path.write_bytes(text.encode("utf-8"))
+                        if filename not in selected:
+                            unselected_before[filename] = path.read_bytes()
+
+                    stdout = io.StringIO()
+                    with redirect_stdout(stdout):
+                        code = workflow_main(["--project", str(project.root), "instructions", "install"])
+                    self.assertEqual(code, 0)
+                    self.assertEqual({item["file"] for item in json.loads(stdout.getvalue())["files"]}, selected)
+                    self.assertEqual(project.context_path.read_bytes(), context_before)
+                    self.assertEqual(tasks.path.read_bytes(), tasks_before)
+                    for filename in selected:
+                        text = (project.root / filename).read_bytes().decode("utf-8")
+                        self.assertEqual(text[:text.index(INSTRUCTIONS_BEGIN)], prefix)
+                        self.assertEqual(text[text.index(INSTRUCTIONS_END) + len(INSTRUCTIONS_END):], suffix)
+                        self.assertNotIn("Stale visualization rules.", text)
+                        self.assert_model_visualization_workflow(text)
+                    for filename, content in unselected_before.items():
+                        self.assertEqual((project.root / filename).read_bytes(), content)
+
+                    files_before = {filename: (project.root / filename).read_bytes()
+                                    for filename in ("AGENTS.md", "CLAUDE.md")}
+                    stdout = io.StringIO()
+                    with redirect_stdout(stdout):
+                        code = workflow_main(["--project", str(project.root), "instructions", "install"])
+                    self.assertEqual(code, 0)
+                    self.assertFalse(any(item["changed"] for item in json.loads(stdout.getvalue())["files"]))
+                    self.assertEqual(project.context_path.read_bytes(), context_before)
+                    self.assertEqual(tasks.path.read_bytes(), tasks_before)
+                    for filename, content in files_before.items():
+                        self.assertEqual((project.root / filename).read_bytes(), content)
 
     def test_updated_block_preserves_user_rules_and_reinstall_is_idempotent(self):
         with tempfile.TemporaryDirectory() as directory:

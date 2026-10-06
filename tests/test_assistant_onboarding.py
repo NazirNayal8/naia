@@ -1,19 +1,23 @@
 """CPU-only assistant onboarding contracts; no jobs or external services."""
 from contextlib import redirect_stderr, redirect_stdout
+import copy
 import io
 import json
 from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from naia.cli import main, parser
+import naia.context as project_context
 from naia.context import Project, QUESTIONS
 from naia.demo import install as install_demo
 from naia.storage import NAIAError, write_json
+from naia.tasks import Tasks
 
 
 BEGIN = "<!-- naia:instructions -->"
@@ -81,6 +85,38 @@ class AssistantOnboardingTest(unittest.TestCase):
         for topic, expression in topics.items():
             with self.subTest(topic=topic):
                 self.assertRegex(block, expression)
+
+    @staticmethod
+    def custom_roles():
+        return {
+            "codex": {"role": 'Research "architect" — café',
+                      "responsibilities": ["Review `latent` tensor dimensions", "Implement approved model changes"],
+                      "boundaries": ["Keep scientific conclusions with the user"]},
+            "claude": {"role": "Evidence analyst λ",
+                       "responsibilities": ["Inspect approved run evidence"],
+                       "boundaries": ["Escalate changes to the research design"]},
+        }
+
+    def assert_role_sections(self, project, assignments):
+        blocks = {}
+        for assistant, filename in (("codex", "AGENTS.md"), ("claude", "CLAUDE.md")):
+            text = (project.root / filename).read_text()
+            self.assert_contract(text)
+            block = text.split(BEGIN, 1)[1].split(END, 1)[0]
+            section = block.split("\n## Assistant roles\n\n", 1)[1]
+            blocks[assistant] = section
+            other = "claude" if assistant == "codex" else "codex"
+            self.assertIn(f"- You are {assistant.title()}: {assignments[assistant]['role']}.", section)
+            self.assertNotIn(f"- You are {other.title()}:", section)
+            self.assertIn(f"- {other.title()}'s confirmed role: {assignments[other]['role']}.", section)
+            for field in ("responsibilities", "boundaries"):
+                label = "Responsibility" if field == "responsibilities" else "Boundary"
+                for instruction in assignments[assistant][field]:
+                    self.assertIn(f"- {label}: {instruction}", section)
+                for instruction in assignments[other][field]:
+                    if instruction not in assignments[assistant][field]:
+                        self.assertNotIn(f"- {label}: {instruction}", section)
+        self.assertNotEqual(blocks["codex"], blocks["claude"])
 
     def test_bare_init_remains_opt_in_and_idempotent(self):
         self.project.initialize()
@@ -326,6 +362,291 @@ class AssistantOnboardingTest(unittest.TestCase):
                     self.project.initialize(assistant=invalid)
                 with self.assertRaises(NAIAError):
                     self.project.configure_assistant(invalid)
+                self.assertEqual(self.snapshot(), before)
+
+    def test_roles_question_is_optional_and_only_for_both_assistants(self):
+        for choice in (None, "codex", "claude", "both"):
+            with self.subTest(assistant=choice):
+                project = Project(self.project.root / (choice or "unselected"))
+                project.initialize(assistant=choice, scan=False)
+                questions = [question for question in project.questions()
+                             if question["field"] == "assistant_roles"]
+                self.assertEqual(len(questions), int(choice == "both"))
+                if questions:
+                    self.assertTrue(questions[0]["optional"])
+                    self.assertFalse(questions[0]["answer"]["confirmed"])
+                    self.assertTrue(questions[0]["question"])
+                    for filename in FILES["both"]:
+                        self.assertNotIn("- You are ", (project.root / filename).read_text())
+                self.assertFalse(project.load().get("assistants", {}).get("roles", {}).get("confirmed", False))
+
+    def test_pending_roles_do_not_block_training_onboarding(self):
+        self.project.initialize(assistant="both", scan=False)
+        for question in QUESTIONS:
+            self.project.answer(question["field"], "User-approved answer", confirmed=True)
+        self.project.configure_backend("local", {"kind": "local"}, confirmed=True)
+        self.project.confirm("researcher")
+        self.assertEqual(self.project.execution_ready("local")["kind"], "local")
+        question = next(question for question in self.project.questions()
+                        if question["field"] == "assistant_roles")
+        self.assertFalse(question["answer"]["confirmed"])
+
+    def test_role_presets_are_explicitly_confirmed_and_rendered_for_each_assistant(self):
+        expected_roles = {"peers": {"codex": "Peer", "claude": "Peer"},
+                          "codex-lead": {"codex": "Lead", "claude": "Support"},
+                          "claude-lead": {"codex": "Support", "claude": "Lead"}}
+        for preset in ("peers", "codex-lead", "claude-lead"):
+            with self.subTest(preset=preset):
+                project = Project(self.project.root / preset)
+                project.initialize(assistant="both", scan=False)
+                project.configure_roles(preset=preset, actor="researcher")
+                roles = project.load()["assistants"]["roles"]
+                self.assertEqual(roles["preset"], preset)
+                self.assertIs(roles["confirmed"], True)
+                self.assertEqual(roles["confirmed_by"], "researcher")
+                self.assertTrue(roles["confirmed_at"])
+                self.assertEqual(set(roles["assignments"]), {"codex", "claude"})
+                self.assertEqual({assistant: entry["role"] for assistant, entry in roles["assignments"].items()},
+                                 expected_roles[preset])
+                self.assert_role_sections(project, roles["assignments"])
+                question = next(question for question in project.questions()
+                                if question["field"] == "assistant_roles")
+                self.assertTrue(question["optional"])
+                self.assertTrue(question["answer"]["confirmed"])
+
+    def test_custom_and_reversed_roles_round_trip_without_fixed_lead(self):
+        assignments = self.custom_roles()
+        for label, selected in (("custom", assignments),
+                                ("reversed", {"codex": assignments["claude"], "claude": assignments["codex"]})):
+            with self.subTest(assignment=label):
+                project = Project(self.project.root / label)
+                project.initialize(assistant="both", scan=False)
+                project.configure_roles(assignments=selected, actor="researcher")
+                self.assertEqual(Project(project.root).load()["assistants"]["roles"]["assignments"], selected)
+                self.assert_role_sections(project, selected)
+
+    def test_roles_update_preserves_existing_context_tasks_and_surrounding_bytes(self):
+        self.project.initialize(assistant="both", scan=False)
+        for question in QUESTIONS:
+            self.project.answer(question["field"], {"existing": question["field"]}, confirmed=True)
+        self.project.configure_backend("local", {"kind": "local", "command_python": "/existing/python"},
+                                       confirmed=True)
+        self.project.confirm("researcher")
+        tasks = Tasks(self.project)
+        tasks.add("REVIEW-ROLES", "Review responsibilities", "Check the work division",
+                  "Choose the next research step", owner="researcher", top=True)
+        context_before = self.project.load()
+        tasks_before = tasks.path.read_bytes()
+        prefix = "Custom rules: café.\r\nPreserve two spaces.  \r\n\r\n"
+        suffix = "\r\n\r\nFinal user rule: λ.\r\n"
+        suffixes = {}
+        for filename in FILES["both"]:
+            path = self.project.root / filename
+            path.write_bytes(prefix.encode("utf-8") + path.read_bytes() + suffix.encode("utf-8"))
+            original = path.read_bytes().decode("utf-8")
+            suffixes[filename] = original[original.index(END) + len(END):]
+        assignments = self.custom_roles()
+        self.project.configure_roles(assignments=assignments, actor="researcher")
+        self.assert_role_sections(self.project, assignments)
+        for key in ("answers", "policies", "backends", "onboarding"):
+            self.assertEqual(self.project.load()[key], context_before[key])
+        self.assertEqual(tasks.path.read_bytes(), tasks_before)
+        for filename in FILES["both"]:
+            text = (self.project.root / filename).read_bytes().decode("utf-8")
+            self.assertEqual(text[:text.index(BEGIN)], prefix)
+            self.assertEqual(text[text.index(END) + len(END):], suffixes[filename])
+        before = self.snapshot()
+        self.project.configure_roles(assignments=assignments, actor="researcher")
+        self.cli("instructions", "install")
+        self.project.initialize(assistant="both", scan=False)
+        self.assertEqual(self.snapshot(), before)
+
+        changed = copy.deepcopy(assignments)
+        changed["codex"]["role"] = "New planning steward"
+        changed["codex"]["responsibilities"] = ["Plan approved changes only"]
+        self.project.configure_roles(assignments=changed, actor="researcher")
+        self.assertEqual(self.project.load()["assistants"]["roles"]["assignments"], changed)
+        self.assert_role_sections(self.project, changed)
+        for filename in FILES["both"]:
+            text = (self.project.root / filename).read_bytes().decode("utf-8")
+            self.assertNotIn(assignments["codex"]["role"], text)
+            self.assertEqual(text[:text.index(BEGIN)], prefix)
+            self.assertEqual(text[text.index(END) + len(END):], suffixes[filename])
+        for key in ("answers", "policies", "backends", "onboarding"):
+            self.assertEqual(self.project.load()[key], context_before[key])
+        self.assertEqual(tasks.path.read_bytes(), tasks_before)
+
+    def test_roles_survive_selection_changes_but_are_inactive_for_single_assistants(self):
+        for choice, selected, unselected in (("codex", "AGENTS.md", "CLAUDE.md"),
+                                            ("claude", "CLAUDE.md", "AGENTS.md")):
+            with self.subTest(assistant=choice):
+                project = Project(self.project.root / choice)
+                project.initialize(assistant="both", scan=False)
+                assignments = self.custom_roles()
+                project.configure_roles(assignments=assignments, actor="researcher")
+                roles_before = project.load()["assistants"]["roles"]
+                unselected_before = (project.root / unselected).read_bytes()
+                project.configure_assistant(choice)
+                self.assertEqual(project.load()["assistants"]["roles"], roles_before)
+                self.assertEqual((project.root / unselected).read_bytes(), unselected_before)
+                text = (project.root / selected).read_text()
+                self.assertNotIn("## Assistant roles", text)
+                for assignment in assignments.values():
+                    self.assertNotIn(assignment["role"], text)
+                    for field in ("responsibilities", "boundaries"):
+                        for instruction in assignment[field]:
+                            self.assertNotIn(instruction, text)
+                self.assertFalse(any(question["field"] == "assistant_roles" for question in project.questions()))
+                project.configure_assistant("both")
+                self.assertEqual(project.load()["assistants"]["roles"], roles_before)
+                self.assert_role_sections(project, assignments)
+
+    def test_role_configuration_is_isolated_between_projects(self):
+        self.project.initialize(assistant="both", scan=False)
+        assignments = self.custom_roles()
+        self.project.configure_roles(assignments=assignments, actor="researcher")
+        before = self.snapshot()
+        other = Project(self.project.root / "other")
+        other.initialize(assistant="both", scan=False)
+        for filename in FILES["both"]:
+            text = (other.root / filename).read_text()
+            for assignment in assignments.values():
+                self.assertNotIn(assignment["role"], text)
+        other.configure_roles(preset="claude-lead", actor="another-user")
+        self.assertEqual({key: value for key, value in self.snapshot().items() if not key.startswith("other/")}, before)
+        self.assertEqual(self.project.load()["assistants"]["roles"]["assignments"], assignments)
+
+    def test_legacy_context_without_roles_remains_unchanged_until_explicit_configuration(self):
+        self.project.initialize(assistant="both", scan=False)
+        legacy = self.project.load()
+        legacy["assistants"].pop("roles", None)
+        write_json(self.project.context_path, legacy)
+        before = self.snapshot()
+        self.project.initialize()
+        self.assertEqual(self.snapshot(), before)
+        question = next(question for question in self.project.questions()
+                        if question["field"] == "assistant_roles")
+        self.assertTrue(question["optional"])
+        self.assertFalse(question["answer"]["confirmed"])
+        self.project.configure_roles(preset="peers", actor="researcher")
+        for key in ("answers", "policies", "backends", "onboarding"):
+            self.assertEqual(self.project.load()[key], legacy[key])
+
+    def test_role_confirmation_requires_a_named_user_and_both_selected(self):
+        self.project.initialize(assistant="both", scan=False)
+        before = self.snapshot()
+        for actor in (None, "", "   ", [], 3):
+            with self.subTest(actor=actor):
+                with self.assertRaises(NAIAError):
+                    self.project.configure_roles(preset="codex-lead", actor=actor)
+                self.assertEqual(self.snapshot(), before)
+        for choice in (None, "codex", "claude"):
+            with self.subTest(assistant=choice):
+                project = Project(self.project.root / (choice or "unselected"))
+                project.initialize(assistant=choice, scan=False)
+                before = self.snapshot(project)
+                with self.assertRaises(NAIAError):
+                    project.configure_roles(preset="peers", actor="researcher")
+                self.assertEqual(self.snapshot(project), before)
+
+    def test_invalid_role_specs_and_reserved_markers_have_no_side_effects(self):
+        self.project.initialize(assistant="both", scan=False)
+        assignments = self.custom_roles()
+        invalid = [{}, {"preset": "unknown"}, {"preset": []},
+                   {"preset": "peers", "assignments": assignments}, {"assignments": []},
+                   {"assignments": {"codex": assignments["codex"]}},
+                   {"assignments": {**assignments, "unknown": assignments["claude"]}}]
+        for field, value in (("role", " "), ("role", 1), ("responsibilities", "a task"),
+                             ("responsibilities", [1]), ("boundaries", None), ("boundaries", [""]),
+                             ("unknown", "unrecognized field")):
+            changed = copy.deepcopy(assignments)
+            changed["codex"][field] = value
+            invalid.append({"assignments": changed})
+        for token in (BEGIN, END, LEGACY_BEGIN, LEGACY_END, "\0", "\n", "\r"):
+            for field in ("role", "responsibilities", "boundaries"):
+                changed = copy.deepcopy(assignments)
+                value = "Invalid " + token + " text"
+                changed["claude"][field] = value if field == "role" else [value]
+                invalid.append({"assignments": changed})
+        before = self.snapshot()
+        for index, arguments in enumerate(invalid):
+            with self.subTest(spec=index):
+                with self.assertRaises(NAIAError):
+                    self.project.configure_roles(**arguments, actor="researcher")
+                self.assertEqual(self.snapshot(), before)
+
+    def test_malformed_second_instruction_file_cannot_partially_confirm_roles(self):
+        self.project.initialize(assistant="both", scan=False)
+        self.project.configure_roles(preset="codex-lead", actor="researcher")
+        path = self.project.root / "CLAUDE.md"
+        path.write_text("User restriction.\n" + BEGIN + "\nMissing closing marker.\n")
+        before = self.snapshot()
+        with self.assertRaises(NAIAError):
+            self.project.configure_roles(preset="claude-lead", actor="researcher")
+        self.assertEqual(self.snapshot(), before)
+
+    def test_second_instruction_write_failure_rolls_back_role_transaction(self):
+        for first_existed in (True, False):
+            with self.subTest(first_existed=first_existed):
+                project = Project(self.project.root / str(first_existed))
+                project.initialize(assistant="both", scan=False)
+                project.configure_roles(preset="codex-lead", actor="researcher")
+                if not first_existed:
+                    (project.root / "AGENTS.md").unlink()
+                before = self.snapshot(project)
+                original_writer = project_context.atomic_text
+                failed = False
+
+                def fail_second_once(path, text):
+                    nonlocal failed
+                    if Path(path).name == "CLAUDE.md" and not failed:
+                        failed = True
+                        raise OSError("Injected second-file write failure")
+                    return original_writer(path, text)
+
+                with patch.object(project_context, "atomic_text", side_effect=fail_second_once):
+                    with self.assertRaisesRegex(OSError, "Injected second-file write failure"):
+                        project.configure_roles(preset="claude-lead", actor="researcher")
+                self.assertTrue(failed)
+                self.assertEqual(self.snapshot(project), before)
+
+    def test_context_persistence_failure_restores_both_role_instruction_files(self):
+        self.project.initialize(assistant="both", scan=False)
+        self.project.configure_roles(preset="codex-lead", actor="researcher")
+        before = self.snapshot()
+        original_writer = project_context.write_json
+        failed = False
+
+        def fail_context_once(path, value):
+            nonlocal failed
+            if Path(path) == self.project.context_path and not failed:
+                failed = True
+                raise OSError("Injected context persistence failure")
+            return original_writer(path, value)
+
+        with patch.object(project_context, "write_json", side_effect=fail_context_once):
+            with self.assertRaisesRegex(OSError, "Injected context persistence failure"):
+                self.project.configure_roles(preset="claude-lead", actor="researcher")
+        self.assertTrue(failed)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_cli_role_presets_custom_files_and_mutually_exclusive_sources(self):
+        self.cli("init", "--assistant", "both", "--no-scan")
+        self.cli("instructions", "roles", "--preset", "peers", "--by", "researcher")
+        self.assertEqual(self.project.load()["assistants"]["roles"]["preset"], "peers")
+        assignments = self.custom_roles()
+        source = self.project.root / "roles.json"
+        write_json(source, assignments)
+        self.cli("instructions", "roles", "--file", str(source), "--by", "researcher")
+        self.assertEqual(self.project.load()["assistants"]["roles"]["assignments"], assignments)
+        self.assert_role_sections(self.project, assignments)
+        before = self.snapshot()
+        for arguments in (("--preset", "peers"), ("--by", "researcher"),
+                          ("--preset", "peers", "--file", str(source), "--by", "researcher")):
+            with self.subTest(arguments=arguments), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as error:
+                    main(["--project", str(self.project.root), "instructions", "roles", *arguments])
+                self.assertEqual(error.exception.code, 2)
                 self.assertEqual(self.snapshot(), before)
 
 

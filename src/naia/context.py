@@ -5,6 +5,7 @@ import copy
 from pathlib import Path
 import shutil
 
+from ._assistant_roles import ROLE_PRESETS, role_question, role_record, role_section
 from .discovery import inspect_project, is_excluded, normalize_exclusions
 from .storage import NAIAError, atomic_text, inside, locked, now, read_json, write_json
 
@@ -52,14 +53,33 @@ QUESTIONS = [
 ]
 ASSISTANT_RULES = """- Read `.lab/project.json` and the task queue before project work. Follow `naia policy`; respect existing project instructions and inspection exclusions. Codex and Claude share the same NAIA records.
 - Users state intent; handle routine workflow steps without asking them to repeat these rules. Before onboarding an existing project, read its instructions and inspection exclusions, then use `naia init` or `naia context scan` with those exclusions. Infer the goal, training/evaluation setup, configuration, and supported hardware from the permitted README, scripts, and configs. Cite files with `naia context propose`; show one concise summary for the user to confirm or correct instead of asking them to describe the project from scratch. Ask only for missing or uncertain details, and flag conflicting or outdated evidence. Accept proposals only after explicit user confirmation; discovery is not launch authorization. Preserve confirmed context and the existing config system; suggest Hydra for a new ML project, never migrate silently.
+- If both Codex and Claude are selected, ask the optional `assistant_roles` question: peers, either assistant as lead, or custom responsibilities and boundaries. Explain proposed limits and record the user's choice with `naia instructions roles` only after confirmation. Never assign a hierarchy automatically. Follow confirmed per-assistant roles in this file and `.lab/project.json`; existing approvals and project scope remain unchanged.
 - After substantive discussions, add or update tasks for decisions the user must make, outstanding results they must review, and blockers needing their input. Link evidence and prioritize the next decision. Reuse existing tasks; do not create duplicates or tasks for purely informational exchanges. Maintain review follow-ups for evaluations and analyses without being reminded.
 - Before any authorized launch, register the approved suite, reserve its results, validate its definition, run a dry-run preflight, and show a brief plan. Use shared `naia suite launch` / `evaluate` commands and confirmed backends. These checks do not require separate reminders or approval for each routine step; new designs, meaningful scope changes, and actual launches still need user authorization.
 - Automatic declared evaluation is on by default. Reuse verified completed work and live jobs; inspect uncertain states before retrying. Sync validated results and ensure a review task exists when evidence is ready. Never present generated metrics as automatic scientific conclusions.
-- For architecture inspection, first read permitted model, config, and forward sources. Infer known sample-input shapes from configuration and data; ask only about uncertain details. Build a trusted factory in the model's existing PyTorch environment and use `naia arch capture` for real sample dataflow, then validate the saved graph. Use module-path aliases for clear names and show tensor dimensions and intermediate sizes. Keep observed, traced, and declared evidence distinct; module listings and hook order do not prove dependencies. If execution is unavailable, declare only dependencies and symbolic shapes supported by cited source/config evidence, not invented flow. Register graphs with suite/task links; use separate graph files and IDs for changed scenarios, shapes, or budgets. Reuse unchanged evidence and keep capture optional. Never run factories from the browser; viewing must not require PyTorch or dependency changes.
+- For architecture inspection, follow the model-visualization workflow below. Handle routine capture and registration for the user; do not merely hand them setup commands.
 - Keep cards and responses short: compact tables and bullets, no long narrative history. Create Markdown only for suite cards or a specifically requested document; no unsolicited reports, notes, runbooks, or task files. Keep operational assignments in NAIA, not suite cards. Evaluation-only work belongs to its training suite.
 - Record design decisions and interpretations only after discussion and user approval. Ask about meaningful missing assumptions, not already established defaults. Only seal suites when the user approves. Prefer existing helpers; do not create per-suite launchers/evaluators.
 - Propose cleanup before deleting, moving, overwriting, publishing, or restructuring existing work; obtain approval and preserve unrelated changes. Never store credentials in project context. Confirmed project-specific exceptions may refine these defaults; do not silently weaken approval or safety boundaries.
 """
+ARCHITECTURE_RULES = """1. Treat \"add this model to the visualizer\" as an end-to-end request, not a special prompt or training launch. First read permitted model, config, and forward sources. Infer the exact variant, existing PyTorch environment, sample-input shapes, dtypes, and device; ask only about uncertain details. Preserve the project's configuration system and model settings.
+2. Check `naia arch list` in an initialized project. Reuse unchanged evidence; use separate graph files and IDs for changed scenarios, shapes, or budgets. Never overwrite registered graphs. Capture, validation, and standalone viewing do not require training/backend onboarding; registration needs initialized project records only.
+3. Reuse an existing factory or create a minimal trusted factory returning `(model, example_args, example_kwargs)`. Use small representative inputs in the model's existing PyTorch environment. Do not train, download weights, change dependencies, or run a simulator solely to draw a model; ask if any such extra work is necessary.
+4. Capture real sample dataflow, then validate the saved graph using the commands below. Tensor tracing is on by default; do not silently substitute `--no-trace` or `--structure-only`. Use module-path aliases for clear names, preserve original paths, and show tensor dimensions and intermediate sizes with type-based labels and distinct layer glyphs.
+5. Verify input-to-output connectivity, branches/residuals, and representative shapes against the forward code. Keep Flow separate from Hierarchy. Keep observed, traced, and declared evidence distinct; module listings and hook order do not prove dependencies. Schema validity alone does not establish correct or complete flow. Flag unknown shapes and partial capture; if execution is unavailable, use only cited source/config evidence, not invented flow.
+6. Register the graph inside the project with `naia arch add`; attach applicable existing `--suite` and `--task` links. Do not create a suite or unsolicited Markdown for visualization. Open or reuse `naia ui` and verify the model is accessible in the Architecture tab; use `naia arch view` for standalone inspection.
+7. Tell the user how to open the graph, the selected variant/input dimensions, and capture limitations. Each capture describes the supplied path, not every branch or input size. Playback is illustrative, not timing. Never run factories from the browser; graph viewing must not require PyTorch or dependency changes.
+
+```bash
+naia arch capture --factory module:build --output artifacts/model-v1.json
+naia arch validate artifacts/model-v1.json
+naia arch add MODEL-V1 --graph artifacts/model-v1.json --title \"Model\"
+naia ui
+```
+
+Replace the module, graph path, ID, and title with project-specific values; `module:build` is the trusted factory, not a built-in module. Existing projects refresh these managed instructions with `naia instructions install`; package upgrades alone do not refresh project files.
+"""
+ASSISTANT_RULES += "\n## Model visualization\n\n" + ARCHITECTURE_RULES
 POLICY_TEXT = "NAIA assistant contract\n\n" + ASSISTANT_RULES
 INSTRUCTIONS_BEGIN = "<!-- naia:instructions -->"
 INSTRUCTIONS_END = "<!-- /naia:instructions -->"
@@ -170,6 +190,9 @@ class Project:
         choice = data.get("assistants", {}).get("selection")
         questions = [{**ASSISTANT_QUESTION, "answer": {"confirmed": bool(choice), "value": choice},
                       "mode": "confirmed" if choice else "missing"}]
+        roles_question = role_question(data.get("assistants", {}))
+        if roles_question is not None:
+            questions.append(roles_question)
         discovery = data.get("discovery", {})
         excluded = self._exclusions(data)
         for item in QUESTIONS:
@@ -292,25 +315,47 @@ class Project:
     def configure_assistant(self, choice):
         if not isinstance(choice, str) or choice not in ASSISTANTS:
             raise NAIAError("Choose assistant codex, claude, or both")
-        # Selecting the integration authorizes only the selected managed blocks.
-        self.load()
         files = list(ASSISTANTS[choice])
-        results = self.install_instructions(files)
         with locked(self.directory / "state/locks/context.lock"):
             data = self.load()
             current = data.get("assistants", {})
             changed = current.get("selection") != choice or current.get("instruction_files") != files
             missing = set(POLICY) - set(data.get("policies", {}))
+            prospective = {**current, "selection": choice, "instruction_files": files}
             if changed or missing:
                 if changed:
-                    data["assistants"] = {"selection": choice, "instruction_files": files, "configured_at": now()}
+                    prospective["configured_at"] = now()
                 for key in missing:
                     data.setdefault("policies", {})[key] = copy.deepcopy(POLICY[key])
+                data["assistants"] = prospective
                 data["revision"] += 1
-                write_json(self.context_path, data)
+            # Render the prospective choice; preserve any confirmed role assignment.
+            results = self._install_instructions(files, prospective,
+                                                context_data=data if changed or missing else None)
         return {"selection": choice, "instruction_files": files, "files": results,
                 "warnings": self.assistant_warnings(),
-                "assistant_action": "Read the installed instruction files now. Start a new assistant session if needed for automatic instruction discovery."}
+                "role_question": role_question(prospective),
+                "assistant_action": "Read the installed instruction files now. If both assistants are selected and assistant_roles is unanswered, ask about an optional role split; do not assume a lead. Start a new assistant session if needed for instruction discovery."}
+
+    def configure_roles(self, *, preset=None, assignments=None, actor=None):
+        candidate = role_record(preset=preset, assignments=assignments, actor=actor)
+        with locked(self.directory / "state/locks/context.lock"):
+            data = self.load()
+            state = data.get("assistants", {})
+            if state.get("selection") != "both":
+                raise NAIAError("Assistant roles require both Codex and Claude to be selected")
+            old_roles = state.get("roles")
+            changed = (not isinstance(old_roles, dict)
+                       or any(old_roles.get(key) != value for key, value in candidate.items()))
+            roles = {**candidate, "confirmed_at": now()} if changed else old_roles
+            prospective = {**state, "roles": roles}
+            if changed:
+                data["assistants"] = prospective
+                data["revision"] += 1
+            results = self._install_instructions(list(ASSISTANTS["both"]), prospective,
+                                                context_data=data if changed else None)
+        return {"roles": copy.deepcopy(roles), "files": results,
+                "assistant_action": "Read each assistant's updated role section. Shared project approvals still apply; roles do not invoke agents."}
 
     def assistant_warnings(self):
         files = self.load().get("assistants", {}).get("instruction_files", [])
@@ -397,6 +442,11 @@ class Project:
         return {"project": str(self.root), "ok": all(c["ok"] for c in checks), "checks": checks}
 
     def install_instructions(self, filenames):
+        with locked(self.directory / "state/locks/context.lock"):
+            state = self.load().get("assistants", {})
+            return self._install_instructions(filenames, state)
+
+    def _install_instructions(self, filenames, assistant_state, *, context_data=None):
         if not filenames or len(set(filenames)) != len(filenames) or any(
                 filename not in ("AGENTS.md", "CLAUDE.md") for filename in filenames):
             raise NAIAError("Choose distinct AGENTS.md and/or CLAUDE.md instruction files")
@@ -407,7 +457,10 @@ class Project:
             # Preflight all files before writing either integration.
             for filename in filenames:
                 path = self.path(filename)
-                original = path.read_bytes().decode("utf-8") if path.exists() else ""
+                existed = path.exists()
+                original = path.read_bytes().decode("utf-8") if existed else ""
+                block = (INSTRUCTIONS_BEGIN + "\n## NAIA workflow\n\n" + ASSISTANT_RULES
+                         + role_section(filename, assistant_state) + INSTRUCTIONS_END + "\n")
                 present = [(begin, end) for begin, end in pairs if begin in original or end in original]
                 if len(present) > 1:
                     raise NAIAError(f"Inspect mixed instruction markers in {filename} before updating")
@@ -417,14 +470,25 @@ class Project:
                         raise NAIAError(f"Inspect malformed instruction markers in {filename} before updating")
                     start = original.index(begin)
                     stop = original.index(end) + len(end)
-                    updated = original[:start] + INSTRUCTIONS_BLOCK.rstrip("\n") + original[stop:]
+                    updated = original[:start] + block.rstrip("\n") + original[stop:]
                 else:
-                    updated = original + ("\n" if original and not original.endswith("\n\n") else "") + INSTRUCTIONS_BLOCK
-                plans.append((filename, path, original, updated))
-            results = []
-            for filename, path, original, updated in plans:
-                changed = original != updated
-                if changed:
-                    atomic_text(path, updated)
-                results.append({"file": filename, "changed": changed})
+                    updated = original + ("\n" if original and not original.endswith("\n\n") else "") + block
+                plans.append((filename, path, original, updated, existed))
+            results, written = [], []
+            try:
+                for filename, path, original, updated, existed in plans:
+                    changed = original != updated
+                    if changed:
+                        atomic_text(path, updated)
+                        written.append((path, original, existed))
+                    results.append({"file": filename, "changed": changed})
+                if context_data is not None:
+                    write_json(self.context_path, context_data)
+            except BaseException:
+                for path, original, existed in reversed(written):
+                    if existed:
+                        atomic_text(path, original)
+                    else:
+                        path.unlink(missing_ok=True)
+                raise
         return results

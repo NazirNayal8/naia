@@ -5,7 +5,7 @@ import argparse
 import json
 import sys
 
-from .context import ASSISTANTS, POLICY_TEXT, Project
+from .context import ASSISTANTS, POLICY_TEXT, ROLE_PRESETS, Project
 from .execution import launch, reconcile, run_stage
 from .storage import NAIAError, read_json
 from .suites import Suites, import_analysis
@@ -62,6 +62,11 @@ def parser():
     # nargs='*' positional when choices are supplied (including --assistant).
     install.add_argument("files", nargs="*", metavar="INSTRUCTION_FILE", help="AGENTS.md and/or CLAUDE.md (legacy explicit files)")
     install.add_argument("--assistant", choices=ASSISTANTS, help="Configure a named assistant integration")
+    roles = instructions.add_parser("roles", help="Record user-confirmed assistant roles and refresh both instruction files")
+    source = roles.add_mutually_exclusive_group(required=True)
+    source.add_argument("--preset", choices=ROLE_PRESETS)
+    source.add_argument("--file", help="JSON codex/claude roles, responsibilities and boundaries")
+    roles.add_argument("--by", required=True, help="User who explicitly confirmed the role arrangement")
     tasks = sub.add_parser("task").add_subparsers(dest="task_action", required=True)
     tasks.add_parser("list")
     tasks.add_parser("next")
@@ -152,6 +157,10 @@ def dispatch(args):
             return project.configure_backend(args.id, read_json(args.file), confirmed=args.confirmed)
         return project.confirm(args.by)
     if args.command == "instructions":
+        if args.instructions_action == "roles":
+            return project.configure_roles(preset=args.preset,
+                                           assignments=read_json(args.file) if args.file else None,
+                                           actor=args.by)
         if args.assistant and args.files:
             raise NAIAError("Use --assistant or instruction filenames, not both")
         if args.assistant:

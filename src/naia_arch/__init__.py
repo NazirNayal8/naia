@@ -1,7 +1,7 @@
 """Graph inspection without torch; capture imports torch only when called."""
 from .schema import validate_graph
 
-__version__ = "0.1.0a2"
+__version__ = "0.1.0a3"
 
 
 def capture(*args, **kwargs):

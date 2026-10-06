@@ -42,6 +42,32 @@ naia context scan --exclude archive
 and skips common secret files, symlinks, and generated data; your assistant interprets
 the evidence. See [discovery limits](FEATURES.md#project-setup).
 
+## Assistant roles
+
+With both integrations selected, your assistant asks about optional roles and records
+your confirmed choice. Presets are `peers`, `codex-lead` (Claude support), and
+`claude-lead` (Codex support); no hierarchy is assumed automatically.
+
+```bash
+naia instructions roles --preset codex-lead --by YOUR_NAME
+naia instructions roles --file roles.json --by YOUR_NAME
+```
+
+Use either a preset or a custom file after user confirmation. `roles.json` contains:
+
+```json
+{
+  "codex": {"role": "ROLE", "responsibilities": ["RESPONSIBILITY"], "boundaries": ["BOUNDARY"]},
+  "claude": {"role": "ROLE", "responsibilities": ["RESPONSIBILITY"], "boundaries": ["BOUNDARY"]}
+}
+```
+
+The assignment is stored under `.lab/project.json`'s `assistants.roles`. Updating it
+refreshes assistant-specific role sections in both managed instruction files and preserves
+existing text. Roles remain optional, do not block onboarding when unanswered, and are
+inactive with a single integration. They do not authorize launches, expand scope, or
+automatically invoke another assistant.
+
 ## Try the demo
 
 This synthetic CPU example requires a fresh directory:

@@ -132,8 +132,10 @@ class ProjectDiscoveryTest(unittest.TestCase):
         self.assertFalse(data["discovery"]["existing_project"])
         self.assertEqual(data["discovery"]["sources"], [])
         questions = self.questions()
-        self.assertEqual(len(questions), 8)
+        self.assertEqual(len(questions), 9)
         self.assertEqual(questions["assistant"]["mode"], "confirmed")
+        self.assertEqual(questions["assistant_roles"]["mode"], "missing")
+        self.assertTrue(questions["assistant_roles"]["optional"])
         for field in ("reporting", "governance"):
             self.assertEqual(questions[field]["mode"], "confirmed")
         for field in ("project", "hardware", "execution", "evaluation", "configuration"):

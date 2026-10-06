@@ -63,11 +63,22 @@ def main():
             raise RuntimeError("Standalone validation unexpectedly initialized a project")
         subprocess.run([str(commands["naia-arch"]), "validate", str(graph)], cwd=root,
                        env=environment, check=True, capture_output=True, text=True)
-        run("--project", str(root / "onboarding"), "init", "--assistant", "both")
+        onboarding = root / "onboarding"
+        initialized = json.loads(run("--project", str(onboarding), "init", "--assistant", "both").stdout)
+        role_questions = [question for question in initialized["questions"]
+                          if question["field"] == "assistant_roles"]
+        if len(role_questions) != 1 or not role_questions[0]["optional"]:
+            raise RuntimeError("Dual-assistant onboarding is missing the optional role question")
         for filename in ("AGENTS.md", "CLAUDE.md"):
-            text = (root / "onboarding" / filename).read_text()
+            text = (onboarding / filename).read_text()
             if text.count("<!-- naia:instructions -->") != 1:
                 raise RuntimeError(f"Instruction contract missing from {filename}")
+        run("--project", str(onboarding), "instructions", "roles", "--preset", "codex-lead",
+            "--by", "smoke-user")
+        for filename, role in (("AGENTS.md", "You are Codex: Lead."),
+                               ("CLAUDE.md", "You are Claude: Support.")):
+            if role not in (onboarding / filename).read_text():
+                raise RuntimeError(f"Assistant-specific role missing from {filename}")
         project = root / "demo"
         run("--project", str(project), "demo")
         run("--project", str(project), "suite", "launch", "DEMO")

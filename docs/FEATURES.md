@@ -7,8 +7,16 @@
 `naia init --assistant <choice>` selects Codex, Claude, or both. Setup adds managed rules
 to root `AGENTS.md`, `CLAUDE.md`, or both, preserving existing text and updating older blocks.
 If no choice is recorded, setup returns an assistant-choice question. The choice is stored in
-`.lab/project.json`; both assistants share state, with no assigned lead. Already
+`.lab/project.json`; both assistants share state, with no automatically assigned lead. Already
 initialized NAIA projects can use `naia instructions install --assistant both`.
+
+When both are selected, the assistant asks about optional roles: peers, Codex lead with
+Claude support, the reverse, or custom responsibilities and boundaries. It records only
+your confirmed choice under `assistants.roles` in `.lab/project.json` and refreshes the
+assistant-specific role sections in managed `AGENTS.md` and `CLAUDE.md`, preserving existing text.
+An unanswered role question does not block onboarding; assignments are inactive with a
+single integration. Roles do not authorize launches, expand scope, or automatically
+invoke another assistant. See the [role commands](CLI.md#assistant-roles).
 
 Ask the assistant to read the rules, or start a new session. Codex's
 [instruction precedence](https://learn.chatgpt.com/docs/agent-configuration/agents-md)
@@ -166,7 +174,7 @@ Lens does not edit the model.
 
 | Location | Contents |
 | --- | --- |
-| `.lab/project.json` | Assistant selection, discovery evidence, unconfirmed proposals, confirmed context, policies, execution backends. |
+| `.lab/project.json` | Assistant selection and confirmed roles, discovery evidence, unconfirmed proposals, confirmed context, policies, execution backends. |
 | `.lab/archive.json` | Snapshots of removed tasks; original IDs remain reserved. |
 | `.lab/tasks.json` | Task queue and decision notes. |
 | `.lab/suites/<ID>/` | Registered definition and durable card. |
