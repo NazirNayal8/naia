@@ -1,5 +1,18 @@
 # Release notes
 
+## 0.1.0a5
+
+- Compact layer pictograms and short type captions replace information cards.
+- Full tensor sizes appear on draggable arrow chips; module details stay in the inspector.
+- Clearer colours and silhouettes, including photo-frame inputs, vector bars,
+  circular arithmetic, convolution hexagons, pooling funnels, and projection wedges.
+- Image symbols require declared layout or recorded spatial-processing evidence.
+- Both themes, hierarchy, dragging, playback, comparison, and SVG export remain supported.
+
+Existing projects refresh managed instructions with `naia instructions install` after upgrading.
+
+Verified: 195 tests, browser checks, package builds, and isolated installation.
+
 ## 0.1.0a4
 
 - Reusable catalogue of 64 block types with coordinated colours, shapes, and pictograms.

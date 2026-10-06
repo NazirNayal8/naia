@@ -5,26 +5,23 @@
   'use strict';
   const Blocks = typeof module === 'object' && module.exports ? require('./blocks.js') : window.NAIABlocks;
   const LEVELS = ['Pipeline', 'Modules', 'Blocks', 'Operations'];
-  const PAD = 22, HEAD = 48, ROW_GAP = 24, COL_GAP = 64;
+  const PAD = 20, HEAD = 34, ROW_GAP = 28, COL_GAP = 94, CAPTION_H = 24;
   const text = value => value == null ? '' : String(value);
-  const short = (value, limit = 30) => {
-    const s = text(value); return s.length > limit ? s.slice(0, limit - 1) + '…' : s;
-  };
   const count = value => Number.isFinite(value) ? value.toLocaleString('en-US') : '—';
 
   function shapeSummary(value) {
-    const shapes = [];
-    function visit(item, depth = 0) {
-      if (depth > 12 || shapes.length >= 8 || item == null) return;
+    const shapes = [], seen = new Set();
+    function visit(item) {
+      if (item == null || typeof item !== 'object' || seen.has(item)) return;
+      seen.add(item);
       if (Array.isArray(item)) {
         if (item.length && item.every(x => typeof x === 'number' || typeof x === 'string')) shapes.push(item.map(text).join(' × '));
-        else item.forEach(x => visit(x, depth + 1));
+        else item.forEach(visit);
         return;
       }
-      if (typeof item !== 'object') return;
       if (Array.isArray(item.shape)) {
         shapes.push(item.shape.length ? item.shape.map(text).join(' × ') : 'scalar');
-      } else Object.values(item).forEach(x => visit(x, depth + 1));
+      } else Object.values(item).forEach(visit);
     }
     visit(value);
     return shapes.join(' · ');
@@ -39,14 +36,22 @@
   function edgeShapeSummary(edge, sourceOutputs) {
     // Runtime captures store the carried tensor shape directly, including []
     // for a scalar. Legacy captures may instead store a metadata object.
-    if (Array.isArray(edge.shape)) return shapeSummary({ shape: edge.shape });
+    if (Array.isArray(edge.shape)) return edge.shape.every(dim => typeof dim === 'number' || typeof dim === 'string')
+      ? shapeSummary({ shape: edge.shape }) : shapeSummary(edge.shape);
     return shapeSummary(edge.shape ?? sourceOutputs);
   }
   function blockDesign(node, evidence = {}) {
     return Blocks.resolve(node, { inputs: evidence.inputs ?? node.inputs, outputs: evidence.outputs ?? node.outputs });
   }
   function nodeType(node) { return blockDesign(node).title; }
-  function nodeTitle(node) { return nodeType(node); }
+  function compactTitle(design) {
+    if (design.type_label) return design.type_label;
+    let title = text(design.title || design.label);
+    if (/^Features\b/.test(text(design.dimensional_change))) title = title.replace(/\s+\d+\s*→\s*\d+$/, '');
+    if (['conv', 'conv_transpose'].includes(design.id)) title = title.replace(/\s+\d+(?:×\d+)*$/, '');
+    return title;
+  }
+  function nodeTitle(node) { return compactTitle(blockDesign(node)); }
   function contentRegion(shape, w, h) {
     // The text stays in the central interior even for pointed or curved outlines.
     const pointed = shape === 'diamond', curved = ['circle', 'ellipse', 'attention', 'arithmetic', 'merge'].includes(shape);
@@ -54,13 +59,50 @@
     const inset = pointed ? .32 : curved ? .17 : framed ? .15 : .10;
     return { x: w * inset, y: h * (pointed ? .31 : .20), w: w * (1 - inset * 2), h: h * (pointed ? .40 : .63) };
   }
+  function glyphSize(design, representation = {}) {
+    representation ||= {};
+    const shape = design.glyph_shape || design.shape;
+    if (representation.icon === 'image') return { w: 80, h: 58 };
+    if (shape === 'arithmetic') return { w: 42, h: 42 };
+    if (['loss', 'comparison', 'stop', 'diamond', 'circle'].includes(shape)) return { w: 50, h: 50 };
+    if (['pool', 'reduction', 'norm', 'activation'].includes(shape)) return { w: 62, h: 50 };
+    if (['input', 'output', 'embedding', 'memory'].includes(shape)) return { w: 68, h: 52 };
+    return { w: 78, h: 54 };
+  }
   function nodeSize(node, evidence = {}) {
-    const design = blockDesign(node, evidence), region = contentRegion(design.shape, 1, 1);
-    const input = shapeSummary(evidence.inputs ?? node.inputs), output = shapeSummary(evidence.outputs ?? node.outputs);
-    const titleWidth = Math.max(Math.min(48, text(design.title).length) * 6.65, text(design.category).length * 5.4) + 40;
-    const dimensionsWidth = Math.max(input.length, output.length, 1) * 6.35 + 25;
-    return { w: Math.max(198, Math.ceil(Math.max(titleWidth, dimensionsWidth) / region.w)),
-      h: design.shape === 'diamond' ? 190 : 126 };
+    const design = blockDesign(node, evidence), title = compactTitle(design);
+    const representation = (typeof Blocks.pictogram === 'function' ? Blocks.pictogram(node, evidence) : null) || {};
+    const size = glyphSize(design, representation), w = Math.max(size.w + 12, title.length * 6.65 + 14);
+    return { w, h: size.h + CAPTION_H, glyph: { x: (w - size.w) / 2, y: 0, ...size } };
+  }
+  function nodePortBox(box) {
+    return box.container || !box.glyph ? box : { x: box.x + box.glyph.x, y: box.y + box.glyph.y,
+      w: box.glyph.w, h: box.glyph.h };
+  }
+  function nodeEvidence(model, id) {
+    const node = model.nodes.get(id), calls = model.calls.get(id), event = calls.length ? calls[calls.length - 1].event : {};
+    const evidence = { inputs: node.inputs || event.inputs, outputs: node.outputs || event.outputs };
+    if (!isBoundary(node)) return evidence;
+    // A four-dimensional tensor alone is not an image: attention tensors can
+    // share those sizes. Confirm a spatial role using saved dependency edges.
+    const incoming = node.kind === 'output' || node.type === 'output', pending = [[id, 0]], visited = new Set();
+    while (pending.length) {
+      const [current, depth] = pending.shift(); if (visited.has(current) || depth > 8) continue;
+      visited.add(current);
+      for (const edge of model.flowEdges) {
+        if ((incoming ? edge.target : edge.source) !== current) continue;
+        const other = incoming ? edge.source : edge.target, next = model.nodes.get(other);
+        const design = blockDesign(next);
+        if (['conv', 'conv_transpose'].includes(design.id)) { evidence.image_evidence = 'saved convolution dependency'; return evidence; }
+        if (['reshape', 'transpose', 'slice', 'indexing', 'padding', 'copy', 'identity', 'upsample', 'pool', 'pool_max', 'pool_avg'].includes(design.id))
+          pending.push([other, depth + 1]);
+      }
+    }
+    return evidence;
+  }
+  function tensorLabelLines(edge, model) {
+    return [...new Set(edge.members.flatMap(member => edgeShapeSummary(member, nodeEvidence(model, member.source).outputs)
+      .split(' · ')).filter(Boolean))];
   }
   function isBoundary(node) { return ['input', 'output'].includes(node.kind) || ['placeholder', 'output'].includes(node.type); }
   function activeChildren(model, id, state) {
@@ -191,9 +233,7 @@
           const sub = group(id, activeChildren(model, id, state));
           inner.set(id, sub); sizes.set(id, { w: Math.max(240, sub.w + PAD * 2), h: sub.h + HEAD + PAD });
         } else {
-          const n = model.nodes.get(id);
-          const calls = model.calls.get(id), event = calls.length ? calls[calls.length - 1].event : {};
-          sizes.set(id, nodeSize(n, { inputs: n.inputs || event.inputs, outputs: n.outputs || event.outputs }));
+          sizes.set(id, nodeSize(model.nodes.get(id), nodeEvidence(model, id)));
         }
       }
       for (const e of activeEdges(model, state)) {
@@ -218,7 +258,12 @@
       let x = 0;
       columns.forEach((column, index) => {
         widths[index] = Math.max(...column.map(id => sizes.get(id).w));
-        xs[index] = x; x += widths[index] + COL_GAP;
+        const outgoingLabels = activeEdges(model, state).filter(e => childUnder(model, e.source, parent)
+          && column.includes(childUnder(model, e.source, parent)) && rank.get(childUnder(model, e.target, parent)) > index)
+          .flatMap(e => edgeShapeSummary(e, model.nodes.get(e.source).outputs).split(' · '));
+        const labelGap = Math.max(COL_GAP, ...outgoingLabels.map(label => label.length * 6.2 + 36));
+        xs[index] = x; x += widths[index] + labelGap;
+        if (index === columns.length - 1) x -= labelGap - COL_GAP;
         const h = column.reduce((sum, id) => sum + sizes.get(id).h + ROW_GAP, -ROW_GAP);
         let y = -h / 2;
         column.forEach(id => { centers.set(id, y + sizes.get(id).h / 2); y += sizes.get(id).h + ROW_GAP; });
@@ -254,7 +299,7 @@
     function place(tree, ox, oy) {
       for (const [id, p] of tree.positions) {
         const offset = state.offsets.get(id) || [0, 0], container = tree.inner.has(id);
-        const box = { x: ox + p.x + offset[0], y: oy + p.y + offset[1], w: p.w, h: p.h, container };
+        const box = { x: ox + p.x + offset[0], y: oy + p.y + offset[1], w: p.w, h: p.h, container, glyph: p.glyph };
         boxes.set(id, box);
         if (container) place(tree.inner.get(id), box.x + PAD, box.y + HEAD);
       }
@@ -397,7 +442,7 @@
 
   // Pure graph behavior can also be verified without a browser or PyTorch.
   if (typeof module === 'object' && module.exports) {
-    module.exports = { prepareGraph, shapeSummary, edgeShapeSummary, firstShape, nodeType, nodeTitle, blockDesign, contentRegion, nodeSize, activeChildren, rankNodes, visibleOf, liftEdges, layoutGraph, edgeRoute, comparisonGraph };
+    module.exports = { prepareGraph, shapeSummary, edgeShapeSummary, firstShape, nodeType, nodeTitle, compactTitle, blockDesign, contentRegion, glyphSize, nodeSize, nodePortBox, nodeEvidence, tensorLabelLines, activeChildren, rankNodes, visibleOf, liftEdges, layoutGraph, edgeRoute, comparisonGraph };
     return;
   }
 
@@ -474,14 +519,41 @@
     return n.inputs || (calls.length ? calls[calls.length - 1].event.inputs : null);
   }
   function nodeShape(design, box) {
-    return svgEl('path', { d: Blocks.outline(design.shape, box.w, box.h), class: 'av-shape' });
+    return svgEl('path', { d: Blocks.outline(design.glyph_shape || design.shape, box.w, box.h), class: 'av-shape' });
   }
-  function blockGlyph(design, x, y, size = 30) {
+  function blockGlyph(design, x, y, size = 30, icon = design.icon) {
     const group = svgEl('g', { class: 'av-glyph', transform: 'translate(' + x + ' ' + y + ')', 'aria-hidden': 'true' });
-    group.append(svgEl('circle', { cx: 0, cy: 0, r: size / 2, class: 'av-glyph-disc' }));
-    const paths = svgEl('g', { transform: 'translate(' + (-size * .36) + ' ' + (-size * .36) + ') scale(' + (size * .72 / 24) + ')' });
-    for (const d of Blocks.iconPaths(design.icon)) paths.append(svgEl('path', { d, class: 'av-glyph-mark' }));
+    const paths = svgEl('g', { transform: 'translate(' + (-size / 2) + ' ' + (-size / 2) + ') scale(' + (size / 24) + ')' });
+    const parts = typeof Blocks.iconParts === 'function' ? Blocks.iconParts(icon) : Blocks.iconPaths(icon).map(d => ({ d }));
+    for (const part of parts) paths.append(svgEl('path', { d: part.d, class: part.filled ? 'av-glyph-fill' : 'av-glyph-mark' }));
     group.append(paths); return group;
+  }
+  function photoGlyph(representation, w, h) {
+    const group = svgEl('g', { class: 'av-photo-stack', 'aria-hidden': 'true' });
+    const frames = Math.min(3, Math.max(1, representation.frames || 1)), fw = 64, fh = 42, step = 5;
+    const ox = (w - fw - (frames - 1) * step) / 2, oy = (h - fh - (frames - 1) * step) / 2;
+    for (let frame = frames - 1; frame >= 0; frame--) {
+      const x = ox + frame * step, y = oy + (frames - 1 - frame) * step;
+      group.append(svgEl('rect', { x, y, width: fw, height: fh, rx: 4,
+        class: 'av-shape av-photo' + (frame ? ' av-photo-back' : '') }));
+      if (!frame) {
+        group.append(svgEl('path', { d: 'M ' + (x + 7) + ' ' + (y + 34) + ' L ' + (x + 23) + ' ' + (y + 16)
+          + ' L ' + (x + 35) + ' ' + (y + 28) + ' L ' + (x + 44) + ' ' + (y + 21) + ' L ' + (x + 57) + ' ' + (y + 34) + ' Z', class: 'av-photo-scene' }));
+        group.append(svgEl('circle', { cx: x + 47, cy: y + 11, r: 3.3, class: 'av-photo-scene' }));
+      }
+    }
+    return group;
+  }
+  function drawBlockVisual(design, box, representation = {}) {
+    const visual = svgEl('g', { transform: 'translate(' + (box.x || 0) + ' ' + (box.y || 0) + ')' });
+    if (representation.icon === 'image') visual.append(photoGlyph(representation, box.w, box.h));
+    else {
+      visual.append(nodeShape(design, box));
+      const region = contentRegion(design.glyph_shape || design.shape, box.w, box.h), iconSize = Math.max(22, Math.min(36, region.w * .8, box.h * .63));
+      const shape = design.glyph_shape || design.shape, iconX = ['pool', 'reduction'].includes(shape) ? box.w * .34 : box.w / 2;
+      visual.append(blockGlyph(design, iconX, box.h / 2, iconSize, representation.icon || design.icon));
+    }
+    return visual;
   }
   function hookNode(group, id) {
     group.addEventListener('pointerdown', event => {
@@ -498,33 +570,25 @@
     group.addEventListener('focus', () => select(id, false));
   }
   function drawNode(id, box) {
-    const node = S.model.nodes.get(id), design = blockDesign(node, { inputs: lastInput(id), outputs: lastOutput(id) });
-    const title = design.title;
-    const group = svgEl('g', { class: 'av-node', color: design.color, transform: 'translate(' + box.x + ' ' + box.y + ')',
+    const node = S.model.nodes.get(id), evidence = nodeEvidence(S.model, id), design = blockDesign(node, evidence);
+    const title = compactTitle(design), representation = (typeof Blocks.pictogram === 'function' ? Blocks.pictogram(node, evidence) : null) || {};
+    const group = svgEl('g', { class: 'av-node', color: representation.color || design.color, transform: 'translate(' + box.x + ' ' + box.y + ')',
       tabindex: 0, role: 'button', 'aria-label': title,
       'data-node': id, 'data-block': design.id });
     group.append(svgEl('title', {}, title + '\n' + text(node.module_path || id) + '\n' +
       (shapeSummary(lastInput(id)) || '—') + ' → ' + (shapeSummary(lastOutput(id)) || '—')));
+    if (!box.container) group.append(svgEl('rect', { width: box.w, height: box.h, class: 'av-node-hit' }));
     if (box.container) {
       group.append(svgEl('rect', { width: box.w, height: box.h, rx: 12, class: 'av-box' }));
       group.append(svgEl('rect', { width: box.w, height: HEAD, rx: 12, fill: 'transparent', class: 'av-box-head' }));
-      group.append(blockGlyph(design, 29, 27, 28));
-      group.append(svgEl('text', { x: 51, y: 23, class: 'av-box-title' }, short(title, Math.floor((box.w - 90) / 7))));
-      group.append(svgEl('text', { x: 51, y: 41, class: 'av-box-sub' },
-        design.category + ' · ' + activeChildren(S.model, id, S).length + ' children'));
+      group.append(blockGlyph(design, 23, HEAD / 2, 20));
+      group.append(svgEl('text', { x: 41, y: HEAD / 2 + 4, class: 'av-box-title' }, title));
     } else {
-      group.append(nodeShape(design, box));
-      const region = contentRegion(design.shape, box.w, box.h), caption = short(title, 48);
-      const rowX = (box.w - (Math.max(caption.length * 6.65, text(design.category).length * 5.4) + 36)) / 2;
-      group.append(blockGlyph(design, rowX + 15, region.y + 14));
-      group.append(svgEl('text', { x: rowX + 36, y: region.y + 9, class: 'av-title' }, caption));
-      group.append(svgEl('text', { x: rowX + 36, y: region.y + 25, class: 'av-badge' }, design.category));
-      const input = shapeSummary(lastInput(id)), output = shapeSummary(lastOutput(id));
-      group.append(svgEl('text', { x: box.w / 2, y: region.y + region.h * .66, 'text-anchor': 'middle', class: 'av-size' }, 'in  ' + (input || '—')));
-      group.append(svgEl('text', { x: box.w / 2, y: region.y + region.h * .86, 'text-anchor': 'middle', class: 'av-size' }, 'out ' + (output || '—')));
+      group.append(drawBlockVisual(design, box.glyph, representation));
+      group.append(svgEl('text', { x: box.w / 2, y: box.glyph.h + 18, 'text-anchor': 'middle', class: 'av-title' }, title));
     }
     if (activeChildren(S.model, id, S).length && !(S.projection === 'flow' && S.model.flowEdges.length && S.model.roots.includes(id))) {
-      const toggleEl = svgEl('g', { class: 'av-toggle', transform: 'translate(' + (box.w - 27) + ' ' + (box.container ? 25 : box.h / 2) + ')' });
+      const toggleEl = svgEl('g', { class: 'av-toggle', transform: 'translate(' + (box.container ? box.w - 23 : box.glyph.x + box.glyph.w - 2) + ' ' + (box.container ? HEAD / 2 : 4) + ')' });
       toggleEl.append(svgEl('circle', { r: 9 }), svgEl('text', { x: 0, y: 4, 'text-anchor': 'middle' }, box.container ? '−' : '+'));
       toggleEl.addEventListener('pointerdown', event => event.stopPropagation());
       toggleEl.addEventListener('click', event => { event.stopPropagation(); toggle(id); });
@@ -533,14 +597,18 @@
     }
     if (S.mode === 'compare' && node.comparison) {
       node.comparison.forEach((variant, index) => {
-        const inset = 4 + index * 3;
+        const glyph = box.glyph || box;
+        const maxInset = Math.min(11, Math.min(glyph.w, glyph.h) * .2),
+          inset = 3 + (maxInset - 3) * index / Math.max(1, node.comparison.length - 1);
         const ring = box.container ? svgEl('rect', { x: inset, y: inset, width: box.w - inset * 2,
           height: box.h - inset * 2, rx: 10, class: 'av-compare-ring tone-' + variant.tone })
-          : svgEl('path', { d: Blocks.outline(design.shape, box.w - inset * 2, box.h - inset * 2),
-            transform: 'translate(' + inset + ' ' + inset + ')', class: 'av-compare-ring tone-' + variant.tone });
+          : representation.icon === 'image' ? svgEl('rect', { x: glyph.x + inset, y: inset,
+            width: glyph.w - inset * 2, height: glyph.h - inset * 2, rx: 4, class: 'av-compare-ring tone-' + variant.tone })
+          : svgEl('path', { d: Blocks.outline(design.glyph_shape || design.shape, glyph.w - inset * 2, glyph.h - inset * 2),
+            transform: 'translate(' + (glyph.x + inset) + ' ' + inset + ')', class: 'av-compare-ring tone-' + variant.tone });
         group.append(ring);
       });
-      if (node.comparison_changes.length) group.append(svgEl('circle', { cx: box.w - 27, cy: box.container ? 43 : box.h / 2 + 19, r: 5, class: 'av-diff-ring' }));
+      if (node.comparison_changes.length) group.append(svgEl('circle', { cx: box.container ? box.w - 44 : box.glyph.x + box.glyph.w - 2, cy: box.container ? HEAD / 2 : box.glyph.h - 5, r: 4, class: 'av-diff-ring' }));
     }
     hookNode(group, id); S.nodeEls.set(id, group);
     (box.container ? $('boxes') : $('nodes')).append(group);
@@ -548,9 +616,10 @@
   function drawEdges() {
     $('edges').replaceChildren(); S.edgeEls.clear(); S.routeBounds = [];
     const lifted = liftEdges(S.model, S), parallel = new Map();
+    const ports = new Map([...S.boxes].map(([id, box]) => [id, nodePortBox(box)])), chips = [], chipEls = [];
     let corridorLane = 0;
     for (const edge of lifted) {
-      const a = S.boxes.get(edge.a), b = S.boxes.get(edge.b); if (!a || !b) continue;
+      const a = ports.get(edge.a), b = ports.get(edge.b); if (!a || !b) continue;
       const pair = JSON.stringify([edge.a, edge.b]), lane = parallel.get(pair) || 0;
       parallel.set(pair, lane + 1);
       const ownership = new Set([...S.model.chains.get(edge.a), ...S.model.chains.get(edge.b)]);
@@ -559,30 +628,45 @@
       const route = edgeRoute(a, b, { obstacles, bend: S.bends.get(edge.key), offset: lane * 10, lane: corridorLane });
       if (route.routed) corridorLane++;
       S.routeBounds.push(route.bounds);
-      const d = route.d, labelX = route.label[0], labelY = route.label[1] + (route.routed ? 0 : 17);
+      const d = route.d, labelX = route.label[0], labelY = route.label[1];
       const variant = S.mode === 'compare' ? edge.members[0].comparison_tone : null;
       const marker = variant == null ? edge.evidence : 'compare-' + variant;
       const path = svgEl('path', { d, class: 'av-edge ' + edge.evidence + (variant == null ? '' : ' tone-' + variant), 'marker-end': 'url(#arrow-' + marker + ')' });
       const hit = svgEl('path', { d, class: 'av-edge-hit', 'aria-label': edge.evidence + ' dependency', tabindex: 0 });
-      hit.addEventListener('pointerdown', event => {
+      const startEdgeDrag = event => {
         if (event.button !== 0) return;
         event.preventDefault(); event.stopPropagation(); pause(); selectEdge(edge);
         S.drag = { kind: 'edge', id: edge.key, x: event.clientX, y: event.clientY, start: S.bends.get(edge.key) || [0, 0] };
         svg.setPointerCapture(event.pointerId);
-      });
+      };
+      hit.addEventListener('pointerdown', startEdgeDrag);
       hit.addEventListener('keydown', event => { if (event.key === 'Enter') selectEdge(edge); });
       const title = svgEl('title', {}, edge.evidence + ': ' + edge.members.map(e => e.source + ' → ' + e.target).join('\n'));
       path.append(title); $('edges').append(path, hit);
       S.edgeEls.set(edge.key, { edge, path, route });
-      if (edge.members.length > 1) {
-        $('edges').append(svgEl('text', { x: labelX, y: labelY - 16, 'text-anchor': 'middle', class: 'av-elabel' }, '×' + edge.members.length));
+      const lines = tensorLabelLines(edge, S.model), sourceShape = shapeSummary(lastOutput(edge.members[0].source)),
+        targetShape = shapeSummary(lastOutput(edge.members[0].target));
+      if (lines.length && ($('edge-labels').value === 'all' || ($('edge-labels').value === 'changes' && sourceShape !== targetShape))) {
+        const w = Math.max(...lines.map(line => line.length * 6.2)) + 16, h = lines.length * 15 + 9;
+        const overlaps = (rect, other) => rect.x0 < other.x1 + 5 && rect.x1 > other.x0 - 5
+          && rect.y0 < other.y1 + 5 && rect.y1 > other.y0 - 5;
+        const nodeRects = [...S.boxes.values()].map(box => ({ x0: box.x, x1: box.x + box.w,
+          y0: box.y, y1: box.y + (box.container ? HEAD : box.h) }));
+        const candidates = [0, -22, 22, -44, 44, -66, 66].map(offset => ({ x0: labelX - w / 2,
+          x1: labelX + w / 2, y0: labelY + offset - h / 2, y1: labelY + offset + h / 2, offset }));
+        const bounds = candidates.find(rect => ![...nodeRects, ...chips].some(other => overlaps(rect, other))) || candidates[0];
+        const chip = svgEl('g', { class: 'av-tensor-chip', 'data-edge': edge.key });
+        if (bounds.offset) chip.append(svgEl('path', { d: 'M ' + labelX + ' ' + labelY + ' V '
+          + (bounds.offset < 0 ? bounds.y1 : bounds.y0), class: 'av-chip-leader' }));
+        chip.append(svgEl('rect', { x: bounds.x0, y: bounds.y0, width: w, height: h, rx: 5 }));
+        lines.forEach((line, index) => chip.append(svgEl('text', { x: labelX, y: bounds.y0 + 15 + index * 15,
+          'text-anchor': 'middle', class: 'av-elabel' }, line)));
+        chip.append(svgEl('title', {}, lines.join('\n')));
+        chip.addEventListener('pointerdown', startEdgeDrag);
+        chipEls.push(chip); chips.push(bounds); S.routeBounds.push(bounds);
       }
-      const shape = [...new Set(edge.members.map(member => edgeShapeSummary(member, S.model.nodes.get(member.source).outputs)).filter(Boolean))].join(' · ');
-      const sourceShape = shapeSummary(S.model.nodes.get(edge.members[0].source).outputs);
-      const targetShape = shapeSummary(S.model.nodes.get(edge.members[0].target).outputs);
-      if (shape && ($('edge-labels').value === 'all' || ($('edge-labels').value === 'changes' && sourceShape !== targetShape)))
-        $('edges').append(svgEl('text', { x: labelX, y: labelY, 'text-anchor': 'middle', class: 'av-elabel' }, short(shape, 36)));
     }
+    $('edges').append(...chipEls);
     const edges = activeEdges(S.model, S), shown = lifted.reduce((sum, e) => sum + e.members.length, 0), hidden = edges.length - shown;
     $('edge-status').textContent = edges.length
       ? edges.length + ' saved dependencies' + (hidden ? ' · ' + hidden + ' inside collapsed blocks' : '')
@@ -750,11 +834,10 @@
     const target = $('glossary-results'); target.replaceChildren();
     for (const entry of entries) {
       const card = element('details', undefined, 'av-glossary-item'), summary = element('summary');
-      const sample = svgEl('svg', { viewBox: '0 0 112 70', class: 'av-block-sample', color: entry.color,
+      const sample = svgEl('svg', { viewBox: '0 0 88 66', class: 'av-block-sample', color: entry.color,
         'aria-hidden': 'true', focusable: 'false', 'data-block': entry.id });
-      const outline = svgEl('g', { transform: 'translate(4 4)' });
-      outline.append(svgEl('path', { d: Blocks.outline(entry.shape, 104, 62), class: 'av-shape' }), blockGlyph(entry, 52, 31, 30));
-      sample.append(outline);
+      const size = glyphSize(entry);
+      sample.append(drawBlockVisual(entry, { x: (88 - size.w) / 2, y: (66 - size.h) / 2, ...size }));
       const caption = element('span', undefined, 'av-glossary-caption');
       caption.append(element('strong', entry.label), element('span', entry.category));
       summary.append(sample, caption); card.append(summary, element('p', entry.description));

@@ -7,73 +7,73 @@
 })(typeof globalThis === 'object' ? globalThis : this, function () {
   'use strict';
 
-  // Colour identifies a type, not its owner or position in a particular model.
-  // Shape and pictogram remain usable without colour. Extend this list for new types.
+  // Bright family colours follow the local Architecture pictograms. Each type
+  // retains a distinct tone, silhouette, and symbol without using project names.
   const rows = [
-    ['input', 'Input', 'boundary', 'Data', '#729FC9', 'input', 'input', 'A supplied tensor or structured input.'],
-    ['output', 'Output', 'boundary', 'Data', '#B29A76', 'output', 'output', 'A returned tensor or structured output.'],
-    ['linear', 'Linear', 'linear', 'Layers', '#C3A06B', 'linear', 'linear', 'An affine feature projection; taper follows verified feature dimensions.'],
-    ['bilinear', 'Bilinear', 'linear', 'Layers', '#B9946A', 'linear', 'bilinear', 'A learned interaction between two feature vectors.'],
-    ['conv', 'Convolution', 'convolution', 'Layers', '#6D9FB3', 'conv', 'conv', 'A local learned filter; taper follows observed spatial dimensions.'],
-    ['conv_transpose', 'Transposed convolution', 'convolution', 'Layers', '#7296B9', 'conv', 'conv_transpose', 'A transposed filter; expansion is shown only when supported by tensor sizes.'],
-    ['attention', 'Attention', 'attention', 'Layers', '#9B89B5', 'attention', 'attention', 'Weighted mixing of values using query–key similarity.'],
-    ['embedding', 'Embedding', 'embedding', 'Layers', '#869CBA', 'embedding', 'embedding', 'Lookup of learned vectors from discrete indices.'],
-    ['recurrent', 'Recurrent', 'recurrent', 'Layers', '#AA8FA7', 'recurrent', 'recurrent', 'A layer that propagates a recurrent hidden state.'],
-    ['padding', 'Padding', 'padding', 'Shapes', '#9EAC83', 'padding', 'padding', 'Adds border values without learning new semantic features.'],
-    ['upsample', 'Upsampling', 'upsample', 'Shapes', '#81A9AE', 'upsample', 'upsample', 'Resamples spatial axes; direction is determined from observed sizes.'],
-    ['layer_norm', 'Layer normalization', 'normalization', 'Normalization', '#75AB99', 'norm', 'layer_norm', 'Normalizes the configured trailing feature axes.'],
-    ['batch_norm', 'Batch normalization', 'normalization', 'Normalization', '#84AD93', 'norm', 'batch_norm', 'Uses per-channel batch statistics in training.'],
-    ['group_norm', 'Group normalization', 'normalization', 'Normalization', '#96AD88', 'norm', 'group_norm', 'Normalizes groups of channels within each sample.'],
-    ['instance_norm', 'Instance normalization', 'normalization', 'Normalization', '#A3AD86', 'norm', 'instance_norm', 'Normalizes individual samples and channels.'],
-    ['rms_norm', 'RMS normalization', 'normalization', 'Normalization', '#6EA397', 'norm', 'rms_norm', 'Rescales features by their root mean square.'],
-    ['normalization', 'Normalization', 'normalization', 'Normalization', '#7AAB96', 'norm', 'normalization', 'A normalization layer whose specific variant is not classified.'],
-    ['relu', 'ReLU', 'activation', 'Activations', '#C88B79', 'activation', 'relu', 'Rectifies negative activations.'],
-    ['gelu', 'GELU', 'activation', 'Activations', '#C49086', 'activation', 'gelu', 'A smooth activation using Gaussian gating.'],
-    ['sigmoid', 'Sigmoid', 'activation', 'Activations', '#BB8790', 'activation', 'sigmoid', 'Maps scalar values to the interval (0, 1).'],
-    ['tanh', 'Tanh', 'activation', 'Activations', '#B28E99', 'activation', 'tanh', 'Maps scalar values to the interval (−1, 1).'],
-    ['softmax', 'Softmax', 'activation', 'Activations', '#A992B0', 'activation', 'softmax', 'Normalizes exponentials along a configured axis.'],
-    ['activation', 'Activation', 'activation', 'Activations', '#BC9580', 'activation', 'activation', 'A known nonlinear activation; inspect its recorded type and settings.'],
-    ['dropout', 'Dropout', 'dropout', 'Layers', '#A39B79', 'dropout', 'dropout', 'Randomly masks activations in training, not during evaluation.'],
-    ['pool_max', 'Max pooling', 'pooling', 'Pooling', '#8AACAE', 'pool', 'pool_max', 'Keeps the maximum value in each pooling region.'],
-    ['pool_avg', 'Average pooling', 'pooling', 'Pooling', '#91B4A6', 'pool', 'pool_avg', 'Averages values within each pooling region.'],
-    ['pool', 'Pooling', 'pooling', 'Pooling', '#82AAB1', 'pool', 'pool', 'Aggregates spatial regions; no downsampling is assumed without sizes.'],
-    ['reshape', 'Reshape', 'reshape', 'Shapes', '#7AA8BA', 'reshape', 'reshape', 'Reinterprets axes; fewer axes do not imply less information.'],
-    ['transpose', 'Transpose', 'reshape', 'Shapes', '#86A3BC', 'reshape', 'transpose', 'Reorders tensor axes, not the amount of data.'],
-    ['concat', 'Concatenate', 'merge', 'Routing', '#AD9C72', 'merge', 'concat', 'Joins tensors along an existing axis.'],
-    ['stack', 'Stack', 'merge', 'Routing', '#B39A82', 'merge', 'stack', 'Joins tensors by introducing a new axis.'],
-    ['split', 'Split', 'indexing', 'Routing', '#A997B3', 'split', 'split', 'Separates one tensor into multiple pieces.'],
-    ['slice', 'Slice', 'indexing', 'Routing', '#9198B8', 'indexing', 'slice', 'Selects a range of tensor entries.'],
-    ['gather', 'Gather', 'indexing', 'Routing', '#849CAF', 'indexing', 'gather', 'Reads entries selected by indices.'],
-    ['scatter', 'Scatter', 'indexing', 'Routing', '#82A2A4', 'indexing', 'scatter', 'Writes or accumulates entries at selected indices.'],
-    ['indexing', 'Index selection', 'indexing', 'Routing', '#909BAD', 'indexing', 'indexing', 'Selects or rearranges entries using indices.'],
-    ['add', 'Add', 'merge', 'Arithmetic', '#85AA8B', 'arithmetic', 'add', 'Elementwise addition; a residual update only when the graph establishes that role.'],
-    ['subtract', 'Subtract', 'merge', 'Arithmetic', '#A1AB7D', 'arithmetic', 'subtract', 'Elementwise subtraction.'],
-    ['multiply', 'Multiply', 'merge', 'Arithmetic', '#C19B77', 'arithmetic', 'multiply', 'Elementwise multiplication, distinct from matrix multiplication.'],
-    ['divide', 'Divide', 'merge', 'Arithmetic', '#BA8D7B', 'arithmetic', 'divide', 'Elementwise division.'],
-    ['negate', 'Negate', 'merge', 'Arithmetic', '#B99883', 'arithmetic', 'negate', 'Unary negation, not a two-input subtraction.'],
-    ['maximum', 'Maximum', 'merge', 'Arithmetic', '#97AD7F', 'merge', 'maximum', 'Elementwise maximum of inputs, not a Boolean comparison or axis reduction.'],
-    ['minimum', 'Minimum', 'merge', 'Arithmetic', '#A6AD8D', 'merge', 'minimum', 'Elementwise minimum of inputs, not an axis reduction.'],
-    ['matmul', 'Matrix multiplication', 'linear', 'Arithmetic', '#B99D62', 'linear', 'matmul', 'Contracts tensor axes by matrix multiplication.'],
-    ['sum', 'Sum', 'reduction', 'Reductions', '#BAA179', 'reduction', 'sum', 'Sums over one or more tensor axes.'],
-    ['mean', 'Mean', 'reduction', 'Reductions', '#AAA87D', 'reduction', 'mean', 'Averages over one or more tensor axes.'],
-    ['reduction', 'Reduction', 'reduction', 'Reductions', '#9FAC87', 'reduction', 'reduction', 'Aggregates one or more axes; inspect the recorded operation.'],
-    ['comparison', 'Comparison', 'control', 'Arithmetic', '#B3A1AA', 'comparison', 'comparison', 'A comparison or scalar control operation, not an inferred neural layer.'],
-    ['stop_gradient', 'Stop gradient', 'identity', 'Control', '#B58584', 'stop', 'stop_gradient', 'Keeps tensor values while detaching their gradient path.'],
-    ['copy', 'Copy', 'identity', 'Control', '#90A5AD', 'copy', 'copy', 'Copies or converts a tensor; inspect dtype and device metadata.'],
-    ['identity', 'Identity', 'identity', 'Control', '#91A69E', 'identity', 'identity', 'Passes the tensor through without a learned transform.'],
-    ['sequential', 'Sequential', 'container', 'Groups', '#97A6B1', 'container', 'sequential', 'Owns a sequence of modules; arrows still require execution evidence.'],
-    ['container', 'Block', 'container', 'Groups', '#929CAB', 'container', 'container', 'A module ownership group, not evidence of a particular computation.'],
-    ['custom', 'Custom operation', 'operation', 'Other', '#93989F', 'custom', 'custom', 'An unclassified custom layer. Its name is not used to guess what it does.'],
-    ['operation', 'Operation', 'operation', 'Other', '#A49A94', 'custom', 'operation', 'A recorded tensor operation not yet covered by this catalogue.'],
-    ['encoder', 'Encoder', 'container', 'Groups', '#8B9EBE', 'container', 'encoder', 'An explicitly declared encoding block; taper requires verified size change.'],
-    ['projector', 'Projector', 'linear', 'Groups', '#BDAC7F', 'linear', 'projector', 'An explicitly declared feature projection.'],
-    ['predictor', 'Predictor', 'container', 'Groups', '#A48DA4', 'container', 'predictor', 'An explicitly declared prediction block.'],
-    ['tokens', 'Tokens', 'data', 'Data', '#81A7B9', 'embedding', 'tokens', 'A structured set of latent vectors.'],
-    ['parameter', 'Learned parameter', 'data', 'Data', '#9FA3B4', 'embedding', 'parameter', 'A learned tensor, distinct from a runtime input.'],
-    ['budget', 'Budget selection', 'indexing', 'Routing', '#B4AC86', 'indexing', 'budget', 'Selects the explicitly declared token budget.'],
-    ['memory', 'Memory', 'data', 'Data', '#8AA79C', 'memory', 'memory', 'An explicitly declared stored context or state.'],
-    ['loss', 'Loss', 'reduction', 'Objectives', '#B29489', 'loss', 'loss', 'An explicitly declared training objective.'],
-    ['position', 'Position embedding', 'embedding', 'Data', '#A0A1B8', 'embedding', 'position', 'A learned or fixed positional signal, when explicitly declared.'],
+    ['input', 'Input', 'boundary', 'Data', '#3987E5', 'input', 'input', 'A supplied tensor or structured input.'],
+    ['output', 'Output', 'boundary', 'Data', '#D95926', 'output', 'output', 'A returned tensor or structured output.'],
+    ['linear', 'Linear', 'linear', 'Layers', '#EFA600', 'linear', 'linear', 'An affine feature projection; taper follows verified feature dimensions.'],
+    ['bilinear', 'Bilinear', 'linear', 'Layers', '#D89113', 'linear', 'bilinear', 'A learned interaction between two feature vectors.'],
+    ['conv', 'Convolution', 'convolution', 'Layers', '#22B8CE', 'conv', 'conv', 'A local learned filter. Its hexagon identifies the type; spatial sizes appear on arrows and in the inspector.'],
+    ['conv_transpose', 'Transposed convolution', 'convolution', 'Layers', '#03A2BF', 'conv', 'conv_transpose', 'A transposed filter. The glyph remains hexagonal; recorded spatial sizes describe any expansion or contraction.'],
+    ['attention', 'Attention', 'attention', 'Layers', '#A68AF4', 'attention', 'attention', 'Weighted mixing of values using query–key similarity.'],
+    ['embedding', 'Embedding', 'embedding', 'Layers', '#2F92E1', 'embedding', 'embedding', 'Lookup of learned vectors from discrete indices.'],
+    ['recurrent', 'Recurrent', 'recurrent', 'Layers', '#C076E1', 'recurrent', 'recurrent', 'A layer that propagates a recurrent hidden state.'],
+    ['padding', 'Padding', 'padding', 'Shapes', '#D25EC8', 'padding', 'padding', 'Adds border values without learning new semantic features.'],
+    ['upsample', 'Upsampling', 'upsample', 'Shapes', '#E765CE', 'upsample', 'upsample', 'Resamples spatial axes; direction is determined from observed sizes.'],
+    ['layer_norm', 'Layer normalization', 'normalization', 'Normalization', '#199E70', 'norm', 'layer_norm', 'Normalizes the configured trailing feature axes.'],
+    ['batch_norm', 'Batch normalization', 'normalization', 'Normalization', '#1EB97A', 'norm', 'batch_norm', 'Uses per-channel batch statistics in training.'],
+    ['group_norm', 'Group normalization', 'normalization', 'Normalization', '#47B755', 'norm', 'group_norm', 'Normalizes groups of channels within each sample.'],
+    ['instance_norm', 'Instance normalization', 'normalization', 'Normalization', '#62BE64', 'norm', 'instance_norm', 'Normalizes individual samples and channels.'],
+    ['rms_norm', 'RMS normalization', 'normalization', 'Normalization', '#0FAF92', 'norm', 'rms_norm', 'Rescales features by their root mean square.'],
+    ['normalization', 'Normalization', 'normalization', 'Normalization', '#329A72', 'norm', 'normalization', 'A normalization layer whose specific variant is not classified.'],
+    ['relu', 'ReLU', 'activation', 'Activations', '#ED7070', 'activation', 'relu', 'Rectifies negative activations.'],
+    ['gelu', 'GELU', 'activation', 'Activations', '#EB8759', 'activation', 'gelu', 'A smooth activation using Gaussian gating.'],
+    ['sigmoid', 'Sigmoid', 'activation', 'Activations', '#E76397', 'activation', 'sigmoid', 'Maps scalar values to the interval (0, 1).'],
+    ['tanh', 'Tanh', 'activation', 'Activations', '#D874AC', 'activation', 'tanh', 'Maps scalar values to the interval (−1, 1).'],
+    ['softmax', 'Softmax', 'activation', 'Activations', '#CB77CA', 'activation', 'softmax', 'Normalizes exponentials along a configured axis.'],
+    ['activation', 'Activation', 'activation', 'Activations', '#F08796', 'activation', 'activation', 'A known nonlinear activation; inspect its recorded type and settings.'],
+    ['dropout', 'Dropout', 'dropout', 'Layers', '#BF64E4', 'dropout', 'dropout', 'Randomly masks activations in training, not during evaluation.'],
+    ['pool_max', 'Max pooling', 'pooling', 'Pooling', '#36AACC', 'pool', 'pool_max', 'Keeps the maximum value in each pooling region. The funnel identifies aggregation; arrows record the tensor sizes.'],
+    ['pool_avg', 'Average pooling', 'pooling', 'Pooling', '#2AB9BC', 'pool', 'pool_avg', 'Averages values within pooling regions. The funnel identifies the type; arrows and the inspector record size changes.'],
+    ['pool', 'Pooling', 'pooling', 'Pooling', '#229DAB', 'pool', 'pool', 'Aggregates spatial regions. The funnel is a type symbol; it does not establish downsampling without tensor sizes.'],
+    ['reshape', 'Reshape', 'reshape', 'Shapes', '#D846C8', 'reshape', 'reshape', 'Reinterprets axes; fewer axes do not imply less information.'],
+    ['transpose', 'Transpose', 'reshape', 'Shapes', '#B862EA', 'reshape', 'transpose', 'Reorders tensor axes, not the amount of data.'],
+    ['concat', 'Concatenate', 'merge', 'Routing', '#F067B7', 'merge', 'concat', 'Joins tensors along an existing axis.'],
+    ['stack', 'Stack', 'merge', 'Routing', '#DC5196', 'merge', 'stack', 'Joins tensors by introducing a new axis.'],
+    ['split', 'Split', 'indexing', 'Routing', '#B94FDB', 'split', 'split', 'Separates one tensor into multiple pieces.'],
+    ['slice', 'Slice', 'indexing', 'Routing', '#A963E2', 'indexing', 'slice', 'Selects a range of tensor entries.'],
+    ['gather', 'Gather', 'indexing', 'Routing', '#9870DF', 'indexing', 'gather', 'Reads entries selected by indices.'],
+    ['scatter', 'Scatter', 'indexing', 'Routing', '#E450B5', 'indexing', 'scatter', 'Writes or accumulates entries at selected indices.'],
+    ['indexing', 'Index selection', 'indexing', 'Routing', '#C575E4', 'indexing', 'indexing', 'Selects or rearranges entries using indices.'],
+    ['add', 'Add', 'merge', 'Arithmetic', '#39AD64', 'arithmetic', 'add', 'Elementwise addition; a residual update only when the graph establishes that role.'],
+    ['subtract', 'Subtract', 'merge', 'Arithmetic', '#D3A929', 'arithmetic', 'subtract', 'Elementwise subtraction.'],
+    ['multiply', 'Multiply', 'merge', 'Arithmetic', '#F29B27', 'arithmetic', 'multiply', 'Elementwise multiplication, distinct from matrix multiplication.'],
+    ['divide', 'Divide', 'merge', 'Arithmetic', '#E67F3B', 'arithmetic', 'divide', 'Elementwise division.'],
+    ['negate', 'Negate', 'merge', 'Arithmetic', '#D86760', 'arithmetic', 'negate', 'Unary negation, not a two-input subtraction.'],
+    ['maximum', 'Maximum', 'merge', 'Arithmetic', '#7FB83B', 'merge', 'maximum', 'Elementwise maximum of inputs, not a Boolean comparison or axis reduction.'],
+    ['minimum', 'Minimum', 'merge', 'Arithmetic', '#66A338', 'merge', 'minimum', 'Elementwise minimum of inputs, not an axis reduction.'],
+    ['matmul', 'Matrix multiplication', 'linear', 'Arithmetic', '#E4B635', 'linear', 'matmul', 'Contracts tensor axes by matrix multiplication.'],
+    ['sum', 'Sum', 'reduction', 'Reductions', '#EDA347', 'reduction', 'sum', 'Sums over one or more tensor axes.'],
+    ['mean', 'Mean', 'reduction', 'Reductions', '#D7B847', 'reduction', 'mean', 'Averages over one or more tensor axes.'],
+    ['reduction', 'Reduction', 'reduction', 'Reductions', '#AFB74C', 'reduction', 'reduction', 'Aggregates one or more axes; inspect the recorded operation.'],
+    ['comparison', 'Comparison', 'control', 'Arithmetic', '#CC87B4', 'comparison', 'comparison', 'A comparison or scalar control operation, not an inferred neural layer.'],
+    ['stop_gradient', 'Stop gradient', 'identity', 'Control', '#E46A68', 'stop', 'stop_gradient', 'Keeps tensor values while detaching their gradient path.'],
+    ['copy', 'Copy', 'identity', 'Control', '#45AAC7', 'copy', 'copy', 'Copies or converts a tensor; inspect dtype and device metadata.'],
+    ['identity', 'Identity', 'identity', 'Control', '#4DAD8F', 'identity', 'identity', 'Passes the tensor through without a learned transform.'],
+    ['sequential', 'Sequential', 'container', 'Groups', '#758FD8', 'container', 'sequential', 'Owns a sequence of modules; arrows still require execution evidence.'],
+    ['container', 'Block', 'container', 'Groups', '#7C91AB', 'container', 'container', 'A module ownership group, not evidence of a particular computation.'],
+    ['custom', 'Custom operation', 'operation', 'Other', '#8290A3', 'custom', 'custom', 'An unclassified custom layer. Its name is not used to guess what it does.'],
+    ['operation', 'Operation', 'operation', 'Other', '#9B8C9A', 'custom', 'operation', 'A recorded tensor operation not yet covered by this catalogue.'],
+    ['encoder', 'Encoder', 'container', 'Groups', '#4D92E3', 'container', 'encoder', 'An explicitly declared encoding block; taper requires verified size change.'],
+    ['projector', 'Projector', 'linear', 'Groups', '#F2B51C', 'linear', 'projector', 'An explicitly declared feature projection.'],
+    ['predictor', 'Predictor', 'container', 'Groups', '#BD77BA', 'container', 'predictor', 'An explicitly declared prediction block.'],
+    ['tokens', 'Tokens', 'data', 'Data', '#32A4DD', 'embedding', 'tokens', 'A structured set of latent vectors.'],
+    ['parameter', 'Learned parameter', 'data', 'Data', '#6E86E5', 'embedding', 'parameter', 'A learned tensor, distinct from a runtime input.'],
+    ['budget', 'Budget selection', 'indexing', 'Routing', '#E3B759', 'indexing', 'budget', 'Selects the explicitly declared token budget.'],
+    ['memory', 'Memory', 'data', 'Data', '#35AB86', 'memory', 'memory', 'An explicitly declared stored context or state.'],
+    ['loss', 'Loss', 'reduction', 'Objectives', '#E77D56', 'loss', 'loss', 'An explicitly declared training objective.'],
+    ['position', 'Position embedding', 'embedding', 'Data', '#4A9ED4', 'embedding', 'position', 'A learned or fixed positional signal, when explicitly declared.'],
   ];
   const catalog = Object.freeze(rows.map(([id, label, family, category, color, shape, icon, description]) =>
     Object.freeze({ id, label, family, category, color, shape, icon, description })));
@@ -165,12 +165,12 @@
   }
   function resolve(node = {}, metadata = {}) {
     const entry = byId.get(kind(node)), config = node.config || {};
-    const result = { ...entry, title: entry.label, dimensional_change: null };
+    const result = { ...entry, title: entry.label, type_label: entry.label, dimensional_change: null };
     // The capture backend supplies framework-derived names, not module aliases.
     // Preserve known subtypes (GRU, SiLU, LogSoftmax, etc.) without guessing custom ones.
     if (node.visual_kind === entry.id && !['input', 'output', 'container', 'custom', 'operation'].includes(entry.id)
         && typeof node.display_type === 'string' && node.display_type.trim() && node.display_type.length <= 80
-        && !/[\x00-\x1f\x7f]/.test(node.display_type)) result.title = node.display_type.trim();
+        && !/[\x00-\x1f\x7f]/.test(node.display_type)) result.title = result.type_label = node.display_type.trim();
     const input = singleShape(metadata.inputs ?? node.inputs), output = singleShape(metadata.outputs ?? node.outputs);
     let a, b, axis;
     if (['linear', 'projector'].includes(entry.id)) {
@@ -191,7 +191,8 @@
         }
       }
       const spatial = /^Conv(?:Transpose)?([123])d$/.exec(String(node.type || '').replace(/^Lazy/, ''));
-      if (spatial && !/\b[123]d\b/.test(result.title)) result.title += ' ' + spatial[1] + 'd';
+      if (spatial && !/[123]d\b/i.test(result.title)) result.title += ' ' + spatial[1] + 'd';
+      result.type_label = result.title;
       if (['conv', 'conv_transpose'].includes(entry.id) && config.kernel_size != null) {
         const kernel = Array.isArray(config.kernel_size) ? config.kernel_size : [config.kernel_size];
         if (kernel.every(v => Number.isInteger(v) && v > 0)) result.title += ' ' + kernel.join('×');
@@ -201,7 +202,57 @@
       result.dimensional_change = axis === 'Features' ? axis + ' ' + a + ' → ' + b : axis;
       if (a !== b) result.shape = b > a ? 'expand' : 'contract';
     }
+    // Geometry identifies the operation. Verified feature projections taper;
+    // convolution and pooling retain their hexagon/funnel even when sizes change.
+    result.glyph_shape = ['conv', 'conv_transpose'].includes(entry.id) ? 'conv'
+      : ['pool', 'pool_max', 'pool_avg'].includes(entry.id) ? 'pool' : result.shape;
     return result;
+  }
+
+  function pictogram(node = {}, metadata = {}) {
+    const boundary = kind(node);
+    if (!['input', 'output'].includes(boundary)) return null;
+    const entry = byId.get(boundary), annotations = metadata.annotations || node.annotations || {};
+    const representation = metadata.representation ?? node.representation ?? annotations.representation;
+    const declared = typeof representation === 'string' ? { type: representation } : representation || {};
+    const layout = String(declared.layout ?? metadata.layout ?? node.layout ?? annotations.layout ?? '').toUpperCase();
+    const observed = metadata.outputs ?? node.outputs ?? metadata.inputs ?? node.inputs
+      ?? metadata.shape ?? node.shape ?? annotations.shape;
+    const found = shapes(observed), shape = found.length === 1 ? found[0] : null;
+    const valid = shape && shape.every(v => Number.isInteger(v) && v > 0);
+    const formats = {
+      NCHW: { rank: 4, channel: 1, spatial: [2, 3] }, NHWC: { rank: 4, channel: 3, spatial: [1, 2] },
+      BNCHW: { rank: 5, channel: 2, spatial: [3, 4], frames: 1 }, BNHWC: { rank: 5, channel: 4, spatial: [2, 3], frames: 1 },
+      NCTHW: { rank: 5, channel: 1, spatial: [3, 4], frames: 2 }, NTHWC: { rank: 5, channel: 4, spatial: [2, 3], frames: 1 },
+    };
+    const format = formats[layout];
+    let icon = 'tensor', frames = 1, evidence = 'generic tensor boundary';
+    if (['image', 'vector', 'tokens', 'scalar'].includes(declared.type)) {
+      icon = declared.type;
+      evidence = 'declared representation';
+      if (icon === 'image' && valid && format && shape.length === format.rank && format.frames != null) frames = shape[format.frames];
+      if (Number.isInteger(declared.frames) && declared.frames > 0) frames = declared.frames;
+    } else if (format && valid && shape.length === format.rank) {
+      icon = 'image';
+      frames = format.frames == null ? 1 : shape[format.frames];
+      evidence = 'declared image layout';
+    } else if (shape && shape.length === 0) {
+      icon = 'scalar';
+      evidence = 'observed scalar shape';
+    } else if (metadata.image_evidence === 'saved convolution dependency' && valid) {
+      // Channel-like dimensions alone can also be tokens. A saved spatial
+      // convolution dependency supplies the missing role evidence.
+      const candidate = [formats.NCHW, formats.NHWC, formats.BNCHW, formats.BNHWC].find(value =>
+        shape.length === value.rank && [1, 3, 4].includes(shape[value.channel]) && value.spatial.every(axis => shape[axis] >= 8));
+      if (candidate) {
+        icon = 'image';
+        frames = candidate.frames == null ? 1 : shape[candidate.frames];
+        evidence = metadata.image_evidence;
+      }
+    }
+    const label = icon === 'tensor' ? entry.label : ({ image: 'Image', vector: 'Vector', tokens: 'Tokens', scalar: 'Scalar' }[icon] + ' ' + boundary);
+    const color = boundary === 'output' ? entry.color : icon === 'vector' ? '#199E70' : entry.color;
+    return { icon, frames, label, color, evidence };
   }
 
   function outline(shape, w, h) {
@@ -213,23 +264,24 @@
       case 'expand': return `M 0 ${h * .16} L ${w} 0 L ${w} ${h} L 0 ${h * .84} Z`;
       case 'input': return `M 0 ${r} Q 0 0 ${r} 0 H ${w - k} L ${w} ${h / 2} L ${w - k} ${h} H ${r} Q 0 ${h} 0 ${h - r} Z`;
       case 'output': return `M ${k} 0 H ${w - r} Q ${w} 0 ${w} ${r} V ${h - r} Q ${w} ${h} ${w - r} ${h} H ${k} L 0 ${h / 2} Z`;
-      case 'conv': return `M ${k} 0 H ${w - k} L ${w} ${h / 2} L ${w - k} ${h} H ${k} L 0 ${h / 2} Z`;
+      case 'conv': return `M ${w * .2} 0 H ${w * .8} L ${w} ${h / 2} L ${w * .8} ${h} H ${w * .2} L 0 ${h / 2} Z`;
       case 'linear': return `M ${k} 0 H ${w - k} L ${w} ${k} V ${h - k} L ${w - k} ${h} H ${k} L 0 ${h - k} V ${k} Z`;
-      case 'attention': { const q = Math.min(w * .25, h * .24); return `M ${q} 0 H ${w - q} Q ${w} 0 ${w} ${h / 2} Q ${w} ${h} ${w - q} ${h} H ${q} Q 0 ${h} 0 ${h / 2} Q 0 0 ${q} 0 Z`; }
-      case 'norm': return `M ${r} 0 H ${w - r} Q ${w} 0 ${w} ${r} V ${h - r} Q ${w} ${h} ${w - r} ${h} H ${r} Q 0 ${h} 0 ${h - r} V ${r} Q 0 0 ${r} 0 Z M ${k} 0 V ${h} M ${w - k} 0 V ${h}`;
+      case 'attention': return `M 0 ${h / 2} A ${w / 2} ${h / 2} 0 1 1 ${w} ${h / 2} A ${w / 2} ${h / 2} 0 1 1 0 ${h / 2} Z`;
+      case 'norm': return `M ${k} ${h * .08} H ${w - k} V ${h * .92} H ${k} Z M ${k * .65} 0 H 0 V ${h} H ${k * .65} M ${w - k * .65} 0 H ${w} V ${h} H ${w - k * .65}`;
       case 'activation': return `M ${k} 0 H ${w - r} Q ${w} 0 ${w} ${r} V ${h - r} Q ${w} ${h} ${w - r} ${h} H ${k} L 0 ${h / 2} Z`;
-      case 'arithmetic': return `M 0 ${h / 2} C 0 0 ${w} 0 ${w} ${h / 2} C ${w} ${h} 0 ${h} 0 ${h / 2} Z`;
+      case 'arithmetic': { const radius = Math.min(w, h) / 2, cx = w / 2, cy = h / 2; return `M ${cx - radius} ${cy} A ${radius} ${radius} 0 1 1 ${cx + radius} ${cy} A ${radius} ${radius} 0 1 1 ${cx - radius} ${cy} Z`; }
       case 'merge': return `M 0 0 L ${w - k} 0 L ${w} ${h / 2} L ${w - k} ${h} L 0 ${h} L ${k} ${h / 2} Z`;
       case 'split': return `M ${k} 0 L ${w} 0 L ${w - k} ${h / 2} L ${w} ${h} L ${k} ${h} L 0 ${h / 2} Z`;
       case 'reshape': return `M ${k} 0 L ${w} 0 L ${w - k} ${h} L 0 ${h} Z`;
       case 'indexing': return `M ${k} 0 H ${w} V ${h} H ${k} L 0 ${h / 2} Z M ${w - k} 0 V ${h}`;
-      case 'pool': case 'reduction': return `M 0 0 H ${w} V ${h} H 0 Z M ${w * .12} ${h * .14} L ${w * .12} ${h * .86} M ${w * .88} ${h * .14} V ${h * .86}`;
+      case 'pool': return `M 0 0 L ${w * .7} ${h * .32} H ${w} V ${h * .68} H ${w * .7} L 0 ${h} Z`;
+      case 'reduction': return `M 0 0 L ${w * .76} ${h * .35} H ${w} V ${h * .65} H ${w * .76} L 0 ${h} Z`;
       case 'memory': case 'embedding': return `M 0 ${r} Q ${w / 2} 0 ${w} ${r} V ${h - r} Q ${w / 2} ${h} 0 ${h - r} Z M 0 ${r} Q ${w / 2} ${r * 2} ${w} ${r}`;
       case 'loss': case 'comparison': return `M ${k} 0 H ${w - k} L ${w} ${h / 2} L ${w - k} ${h} H ${k} L 0 ${h / 2} Z`;
-      case 'stop': return `M ${k} 0 H ${w - k} L ${w} ${k} V ${h - k} L ${w - k} ${h} H ${k} L 0 ${h - k} V ${k} Z`;
+      case 'stop': { const corner = Math.min(w, h) * .28; return `M ${corner} 0 H ${w - corner} L ${w} ${corner} V ${h - corner} L ${w - corner} ${h} H ${corner} L 0 ${h - corner} V ${corner} Z`; }
       case 'dropout': return round + ` M ${k} ${h * .2} V ${h * .8} M ${w - k} ${h * .2} V ${h * .8}`;
       case 'padding': return round + ` M ${k} ${h * .18} H ${w - k} V ${h * .82} H ${k} Z`;
-      case 'recurrent': return round + ` M ${k} 0 V ${h} M ${w - k} 0 V ${h}`;
+      case 'recurrent': return `M ${w * .2} ${h * .1} C ${w * .65} 0 ${w} ${h * .2} ${w} ${h * .5} C ${w} ${h * .82} ${w * .64} ${h} ${w * .25} ${h * .88} M ${w * .25} ${h * .7} V ${h * .88} L ${w * .08} ${h * .96} M ${w * .8} ${h * .9} C ${w * .35} ${h} 0 ${h * .8} 0 ${h * .5} C 0 ${h * .18} ${w * .36} 0 ${w * .75} ${h * .12} M ${w * .75} ${h * .3} V ${h * .12} L ${w * .92} ${h * .04}`;
       case 'copy': return round + ` M ${k} ${h * .12} H ${w - k} V ${h * .88}`;
       case 'custom': return round + ` M ${w * .1} ${h * .12} H ${w * .2} M ${w * .8} ${h * .88} H ${w * .9}`;
       default: return round;
@@ -237,6 +289,10 @@
   }
 
   const icons = {
+    image: ['M2 4H22V20H2Z', 'M4 17L9 10L14 15L17 12L20 17Z', 'M15.8 7A1.2 1.2 0 1 1 18.2 7A1.2 1.2 0 1 1 15.8 7Z'],
+    vector: ['M3 15H6V21H3Z M8 8H11V21H8Z M13 17H16V21H13Z M18 11H21V21H18Z'],
+    tensor: ['M3 3H21V21H3Z M3 9H21 M3 15H21 M9 3V21 M15 3V21'],
+    scalar: ['M8 12A4 4 0 1 1 16 12A4 4 0 1 1 8 12Z'],
     input: ['M3 5H12V19H3Z M9 12H21 M17 8L21 12L17 16'],
     output: ['M12 5H21V19H12Z M3 12H15 M11 8L15 12L11 16'],
     linear: ['M4 5V19 M20 5V19 M4 6L20 9 M4 12H20 M4 18L20 15'],
@@ -303,5 +359,8 @@
     position: ['M3 18V6 M8 18V9 M13 18V4 M18 18V11 M2 21H22'],
   };
   function iconPaths(icon) { return [...(icons[icon] || icons.custom)]; }
-  return Object.freeze({ catalog, resolve, outline, iconPaths });
+  function iconParts(icon) {
+    return iconPaths(icon).map((d, index) => ({ d, filled: icon === 'vector' || icon === 'scalar' || (icon === 'image' && index > 0) }));
+  }
+  return Object.freeze({ catalog, resolve, outline, iconPaths, iconParts, pictogram });
 });

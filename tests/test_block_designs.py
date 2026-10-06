@@ -280,9 +280,108 @@ class BlockDesignTest(unittest.TestCase):
           console.log(JSON.stringify({title:lens.nodeTitle(node),type:lens.nodeType(node),
             unchanged:JSON.stringify(graph)===before}));
         """.replace("VIEWER_PATH", json.dumps(str(VIEWER))))
-        self.assertEqual(result["title"], "Linear 48 → 192")
+        self.assertEqual(result["title"], "Linear")
         self.assertEqual(result["type"], "Linear 48 → 192")
         self.assertTrue(result["unchanged"])
+
+    def test_compact_captions_exclude_config_and_tensor_dimensions(self):
+        result = self.evaluate("""
+          const lens=require(VIEWER_PATH);
+          console.log(JSON.stringify([
+            {type:'Linear',visual_kind:'linear',display_type:'Linear',parameters:123456,
+              label:'Project alias',config:{in_features:48,out_features:192}},
+            {type:'Conv2d',visual_kind:'conv',display_type:'Convolution 2d',
+              config:{kernel_size:[3,3],in_channels:3,out_channels:48}},
+            {type:'LayerNorm',visual_kind:'layer_norm',display_type:'Layer normalization',
+              config:{normalized_shape:[192]}}
+          ].map(node=>({caption:lens.compactTitle(blocks.resolve(node)),type:lens.nodeType(node)}))));
+        """.replace("VIEWER_PATH", json.dumps(str(VIEWER))))
+        self.assertEqual(result[0]["caption"], "Linear")
+        for item in result:
+            self.assertNotRegex(item["caption"], r"→|×|48|192|123456|Project|Layers|Normalization")
+        self.assertIn("2d", result[1]["caption"].lower())
+        self.assertIn("48", result[0]["type"])
+        self.assertIn("192", result[0]["type"])
+
+    def test_compact_size_is_independent_of_long_tensor_shape_strings(self):
+        result = self.evaluate("""
+          const lens=require(VIEWER_PATH),node={type:'LayerNorm',visual_kind:'layer_norm',
+            display_type:'Layer normalization',config:{normalized_shape:[8]}};
+          const short=lens.nodeSize(node,{inputs:{shape:[2,8]},outputs:{shape:[2,8]}});
+          const long=lens.nodeSize(node,{inputs:{shape:[222222,888888,999999,777777]},
+            outputs:{shape:[222222,888888,999999,777777]}});
+          console.log(JSON.stringify({short,long,round:['add','subtract','multiply','divide'].map(visual_kind=>
+            lens.nodeSize({visual_kind,kind:'operation'}).glyph)}));
+        """.replace("VIEWER_PATH", json.dumps(str(VIEWER))))
+        self.assertEqual(result["short"], result["long"])
+        self.assertLess(result["short"]["w"], 220)
+        self.assertLess(result["short"]["h"], 110)
+        for glyph in result["round"]:
+            self.assertEqual(glyph["w"], glyph["h"])
+
+    def test_full_sizes_live_on_edges_including_scalars_and_many_tensors(self):
+        result = self.evaluate("""
+          const lens=require(VIEWER_PATH),many=Array.from({length:12},(_,i)=>({shape:[2,i+1]}));
+          console.log(JSON.stringify({many:lens.edgeShapeSummary({shape:many}),
+            scalar:lens.edgeShapeSummary({shape:[]}),
+            long:lens.edgeShapeSummary({shape:[2,123456,654321,777777,888888,999999]})}));
+        """.replace("VIEWER_PATH", json.dumps(str(VIEWER))))
+        self.assertEqual(result["scalar"], "scalar")
+        self.assertEqual(result["many"], " · ".join(f"2 × {size}" for size in range(1, 13)))
+        self.assertEqual(result["long"], "2 × 123456 × 654321 × 777777 × 888888 × 999999")
+
+    def test_edge_ports_follow_glyph_bounds_instead_of_caption_width(self):
+        result = self.evaluate("""
+          const lens=require(VIEWER_PATH);
+          console.log(JSON.stringify(lens.nodePortBox({x:100,y:40,w:200,h:80,
+            glyph:{x:60,y:0,w:80,h:54}})));
+        """.replace("VIEWER_PATH", json.dumps(str(VIEWER))))
+        self.assertEqual(result, {"x": 160, "y": 40, "w": 80, "h": 54})
+
+    def test_boundary_pictograms_require_modality_evidence_and_ignore_aliases(self):
+        result = self.evaluate("""
+          const tensor={shape:[2,3,16,32],dtype:'float32'},input={kind:'input',type:'placeholder',
+            label:'RGB image camera',module_path:'image_encoder',outputs:tensor};
+          console.log(JSON.stringify({unknown:blocks.pictogram(input),
+            explicit:blocks.pictogram({...input,representation:'image'}),
+            confirmed:blocks.pictogram(input,{outputs:tensor,image_evidence:'saved convolution dependency'}),
+            scalar:blocks.pictogram({kind:'input',outputs:{shape:[],dtype:'float32'}}),
+            vector:blocks.pictogram({...input,representation:'vector'})}));
+        """)
+        self.assertNotEqual(result["unknown"]["icon"], "image")
+        self.assertEqual(result["explicit"]["icon"], "image")
+        self.assertEqual(result["confirmed"]["icon"], "image")
+        self.assertEqual(result["scalar"]["icon"], "scalar")
+        self.assertEqual(result["vector"]["icon"], "vector")
+
+    def test_saved_convolution_edges_confirm_image_without_alias_inference(self):
+        result = self.evaluate("""
+          const lens=require(VIEWER_PATH),shape={shape:[2,3,16,32],dtype:'float32'};
+          function sample(targetKind,withEdge) {
+            const graph={schema_version:1,nodes:[{id:'root',parent:null,visual_kind:'container'},
+              {id:'input',parent:'root',kind:'input',outputs:shape,label:'Camera image'},
+              {id:'op',parent:'root',kind:'operation',visual_kind:targetKind}],
+              edges:withEdge?[{source:'input',target:'op',evidence:'observed',shape:shape.shape}]:[],events:[]};
+            const before=JSON.stringify(graph),model=lens.prepareGraph(graph),evidence=lens.nodeEvidence(model,'input');
+            return {representation:blocks.pictogram(model.nodes.get('input'),evidence),unchanged:before===JSON.stringify(graph)};
+          }
+          console.log(JSON.stringify({conv:sample('conv',true),tokens:sample('linear',true),
+            disconnected:sample('conv',false)}));
+        """.replace("VIEWER_PATH", json.dumps(str(VIEWER))))
+        self.assertEqual(result["conv"]["representation"]["icon"], "image")
+        self.assertNotEqual(result["tokens"]["representation"]["icon"], "image")
+        self.assertNotEqual(result["disconnected"]["representation"]["icon"], "image")
+        for item in result.values():
+            self.assertTrue(item["unchanged"])
+
+    def test_legacy_log_probability_activations_are_not_softmax_probability_glyphs(self):
+        result = self.evaluate("""
+          console.log(JSON.stringify([
+            {type:'LogSoftmax'}, {type:'Softmin'}, {operation:'aten.log_softmax.int'},
+            {operation:'aten._log_softmax.default'}, {type:'Softmax2d'}
+          ].map(node=>blocks.resolve(node).id)));
+        """)
+        self.assertEqual(result, ["activation", "activation", "activation", "activation", "softmax"])
 
 
 class BlockAssetTest(unittest.TestCase):

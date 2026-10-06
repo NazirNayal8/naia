@@ -168,7 +168,10 @@ class ArchitectureAssistantFlowTest(unittest.TestCase):
         text = ASSISTANT_RULES.lower()
         for phrase in ("permitted model, config, and forward", "sample-input shapes", "uncertain details",
                        "trusted factory", "real sample dataflow", "validate the saved graph",
-                       "computational type", "module paths and aliases in the inspector", "block glossary",
+                       "compact pictograms", "short computational-type captions",
+                       "module paths and aliases in the inspector", "block glossary",
+                       "tensor dimensions and intermediate sizes on arrows",
+                       "image glyphs need explicit image/layout metadata",
                        "expansion/contraction glyphs need verified dimensions",
                        "unfamiliar custom modules must not be guessed from their class names",
                        "tensor dimensions", "intermediate sizes", "observed, traced, and declared",
