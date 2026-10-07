@@ -30,7 +30,8 @@ def main():
     if len(licenses) != 1 or "Copyright (c) 2026 Nazir Nayal" not in installed.locate_file(licenses[0]).read_text():
         raise RuntimeError("Missing packaged MIT license")
     for package, script in (("naia", "app.js"), ("naia_arch", "viewer.js")):
-        for asset in ("index.html", "style.css", script, *(('blocks.js',) if package == 'naia_arch' else ())):
+        extra = ('blocks.js',) if package == 'naia_arch' else ('reports.js', 'reports.css', 'reports_viewer.js')
+        for asset in ("index.html", "style.css", script, *extra):
             if not files(package).joinpath("assets", asset).is_file():
                 raise RuntimeError(f"Missing installed asset: {package}/{asset}")
     if "torch" in sys.modules:
@@ -91,6 +92,16 @@ def main():
                 raise RuntimeError(f"Assistant-specific role missing from {filename}")
         project = root / "demo"
         run("--project", str(project), "demo")
+        report = project / ".lab/reports/DEMO_REPORT"
+        report.mkdir(parents=True)
+        (report / "meta.json").write_text(json.dumps({"id": "DEMO_REPORT", "title": "Demo report",
+            "date": "2026-10-07", "summary": "Installed report smoke test", "tags": ["smoke"]}))
+        (report / "index.html").write_text("<!doctype html><html><head><title>Demo report</title></head>"
+            "<body>Installed report search works.</body></html>")
+        checked = json.loads(run("--project", str(project), "report", "check", "DEMO_REPORT").stdout)
+        found = json.loads(run("--project", str(project), "report", "list", "--query", "search", "--tag", "smoke").stdout)
+        if not checked["valid"] or [item["id"] for item in found["reports"]] != ["DEMO_REPORT"]:
+            raise RuntimeError("Installed report discovery, validation, or search failed")
         run("--project", str(project), "suite", "launch", "DEMO")
         run("--project", str(project), "sync")
         registry = json.loads((project / ".lab/state/registry.json").read_text())
@@ -114,7 +125,7 @@ def main():
                 or architectures[0]["task"] != "REVIEW-DEMO"
                 or not architectures[0]["available"]):
             raise RuntimeError("Project architecture did not link to its suite and review task")
-    print("Unified installation, MIT licensing, assets, command/import aliases, architecture annotation/viewing, onboarding, auto-evaluation, and reuse: OK")
+    print("Unified installation, MIT licensing, assets, command/import aliases, reports, architecture annotation/viewing, onboarding, auto-evaluation, and reuse: OK")
 
 
 if __name__ == "__main__":

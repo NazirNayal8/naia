@@ -81,7 +81,10 @@ naia ui
 
 Prepare the semantic mapping from source evidence; for example `{"module:encoder":{"name":"Visual encoder","role":"encoder","evidence":["models/world.py:42 defines the observation encoder"]},"input:0":{"name":"Observation frames","evidence":["models/world.py:56 documents the observation input"]}}`. Replace these illustrative node IDs and citations with the actual capture and project sources. Replace the module, graph path, ID, and title with project-specific values; `module:build` is the trusted factory, not a built-in module. Existing projects refresh these managed instructions with `naia instructions install`; package upgrades alone do not refresh project files.
 """
-ASSISTANT_RULES += "\n## Model visualization\n\n" + ARCHITECTURE_RULES
+REPORT_RULES = """- Create an HTML report only when requested, using approved results and interpretations. Use the confirmed reporting destination (`.lab/reports` by default); each `A-Z`, digits, underscore ID has `index.html` and `meta.json`. Include source paths and existing suite/task IDs. Do not create a report suite or unsolicited Markdown.
+- Run `naia report check ID` and verify search, controls, and dark/light themes in the Reports tab. Link review materials with `report:ID`. Keep reports self-contained: no remote scripts, API writes, or secrets. Use URL state instead of iframe localStorage. The viewer accepts only bounded display state through `naia-report-state` messages from its own sandboxed frame; it never grants access to project APIs.
+"""
+ASSISTANT_RULES += "\n## Model visualization\n\n" + ARCHITECTURE_RULES + "\n## Reports\n\n" + REPORT_RULES
 POLICY_TEXT = "NAIA assistant contract\n\n" + ASSISTANT_RULES
 INSTRUCTIONS_BEGIN = "<!-- naia:instructions -->"
 INSTRUCTIONS_END = "<!-- /naia:instructions -->"
@@ -111,6 +114,18 @@ class Project:
         if data.get("schema_version") != 1:
             raise NAIAError("Unsupported project context version")
         return data
+
+    def reports(self, directory=None):
+        """Read-only report library; neither scans sources nor initializes a project."""
+        from .reports import Reports
+        data = self.load()
+        reporting = data.get("answers", {}).get("reporting", {}).get("value") or {}
+        if not isinstance(reporting, dict):
+            reporting = {}
+        exclusions = self._exclusions(data)
+        return Reports(self.root, directory or reporting.get("reports_directory", ".lab/reports"),
+                       excluded=lambda relative: is_excluded(relative, exclusions),
+                       limits=reporting.get("report_limits"))
 
     def initialize(self, assistant=None, *, excluded_paths=(), scan=True):
         if assistant is not None and (not isinstance(assistant, str) or assistant not in ASSISTANTS):

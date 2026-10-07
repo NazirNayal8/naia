@@ -204,7 +204,7 @@ class MaterialRenderer:
 
     def read_bytes(self, relative):
         if (not isinstance(relative, str) or not relative or relative.startswith(("/", "\\"))
-                or "\\" in relative or any(part in (".", "..") for part in relative.split("/"))):
+                or "\\" in relative or any(part in ("", ".", "..") for part in relative.split("/"))):
             raise NAIAError("Material must use a relative project path")
         parts = PurePosixPath(relative).parts
         if (relative.lower() == ".lab/project.json" or relative.lower().startswith(".lab/state/")
@@ -244,6 +244,13 @@ class MaterialRenderer:
 
     def material_url(self, target, source):
         target = target.strip()
+        if target.startswith("report:"):
+            from .reports import valid_id
+            try:
+                report_id = valid_id(target[len("report:"):])
+            except ValueError:
+                return "#"
+            return "/report?id=" + urllib.parse.quote(report_id)
         parsed = urllib.parse.urlparse(target)
         if parsed.scheme:
             return target if parsed.scheme in ("http", "https", "mailto") else "#"
@@ -257,6 +264,9 @@ class MaterialRenderer:
         if not resolved.is_relative_to(self.project.root):
             return "#"
         relative = resolved.relative_to(self.project.root).as_posix()
+        report_target = self.project.reports().match_path(relative)
+        if report_target is not None and report_target[1] == "index.html":
+            return "/report?id=" + urllib.parse.quote(report_target[0])
         route = "/asset" if resolved.suffix.lower() in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf") else "/material"
         url = route + "?path=" + urllib.parse.quote(relative)
         return url + ("#" + urllib.parse.quote(fragment) if separator else "")

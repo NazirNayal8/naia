@@ -121,13 +121,14 @@ evaluation can have separate resources. Supported fields are
 ## Browser dashboard
 
 The dashboard opens at `http://127.0.0.1:8767`, with a selectable port, loopback binding,
-and a session token. It uses the local research UI's dark theme and three views:
+and a session token. It uses the local research UI's dark theme and four views:
 
 - Task queue: create/edit tasks, pack/unpack cards, drag to reorder, start/pause/resume,
   complete with a note, and remove into a recoverable archive.
 - Suite graph: drag cards, pan/zoom, hide sealed suites, open rendered cards, and edit
   workflow status or seal/reopen a suite.
 - Architecture: inspect saved graphs with the Lens canvas below.
+- Reports: search analysis reports, filter tags, and open their interactive viewer.
 
 Refresh reads validated results and queues missing reviews; it never launches jobs.
 It does not query the scheduler—use `naia sync` for that. Project context remains
@@ -141,6 +142,42 @@ An approved analysis records an ID, question, instructions, existing inputs, exp
 output paths, and optional owner. NAIA queues a linked task; your assistant or analyst
 runs it with existing tools. Reporting preferences such as Markdown, PDF, or LaTeX do not
 provide built-in renderers. Input and output references must stay inside the project.
+
+## Reports
+
+Ask your assistant to turn an analysis into a report. Reports are discovered from
+`.lab/reports/<ID>/index.html` and `meta.json`; there is no registration step.
+Use uppercase letters, digits, and underscores for IDs.
+
+```json
+{"id":"DATA_AUDIT","title":"Data audit","date":"2026-10-07",
+ "summary":"Reviewed dynamics and evaluation splits.","tags":["data"],
+ "suites":[],"naia_tasks":[],"sources":["artifacts/data-audit.json"]}
+```
+
+The first four fields are required; the lists are optional. The HTML `<title>` must
+match the metadata title. `naia report check` validates files and metadata, not
+scientific conclusions. Search uses title, tags, summary, and static body text,
+excluding scripts and figure data. Invalid reports appear with an error without
+preventing other reports from opening. Refresh picks up edits and new reports.
+
+The viewer supports dark/light themes and links to suites/tasks. Use `report:ID`
+as a task material. Reports can send bounded display state to the wrapper:
+`parent.postMessage({type:'naia-report-state',state:{theme:'dark',budget:'4'}}, '*')`.
+Read initial state from the URL hash; opaque sandbox origins cannot use localStorage.
+Only the viewer's own frame is accepted. State updates the bookmark and “Open alone”
+link; it does not grant access to project APIs.
+
+Reports must work offline with inline or report-relative assets. Remote resources
+and API access are blocked, including when opened alone. No PyTorch is required.
+The shared chart kit, report scaffolding, and export commands are not part of this phase.
+
+Override the directory with `naia --reports-root PATH ui`, or store
+`reports_directory` in the confirmed `reporting` context value. It must stay inside
+the project and respect inspection exclusions; symlinks and sensitive files are denied.
+Optional `report_limits` overrides accept positive integers: `meta_bytes` (64 KiB),
+`html_bytes` (2 MiB), `asset_bytes` (16 MiB), `report_bytes` (64 MiB), `files` (512),
+`reports` (500), `cache_bytes` (8 MiB), and `cache_entries` (128).
 
 ## NAIA Lens
 
@@ -186,6 +223,7 @@ Lens does not edit the model.
 | `.lab/state/registry.json` | Derived suite registry for the graph. |
 | `.lab/state/runs/` | Attempt records, logs, artifacts, evaluation results. |
 | `.lab/analyses/` | Approved analysis instructions and evidence references. |
+| `.lab/reports/<ID>/` | Self-contained HTML reports and searchable metadata. |
 | `.lab/architectures.json` | Validated graph references, checksums, and optional suite/task links. |
 
 Records stay local; NAIA does not upload them or require an AI API key. Your assistant's

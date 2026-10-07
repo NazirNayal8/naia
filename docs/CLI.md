@@ -165,6 +165,21 @@ and [environment options](FEATURES.md#execution-and-environments) for command pr
 `naia analysis add analysis.json --approved-by YOUR_NAME` records approved instructions and input/output paths,
 then queues a task. Your assistant performs the [analysis](FEATURES.md#analysis-assignments).
 
+## Reports
+
+```bash
+naia report list --query "action dynamics" --tag planning
+naia report check
+naia report check DATA_AUDIT
+naia --reports-root docs/reports ui
+```
+
+`list` searches static report text; repeat `--tag` for AND filters. `check` exits 1
+on invalid reports. Both emit JSON. Reports are discovered automatically from the
+[configured folder](FEATURES.md#reports); there is no `add` command.
+Use `report:DATA_AUDIT` with task `--material` to link its viewer. Existing projects
+refresh assistant guidance with `naia instructions install` after upgrading.
+
 ## NAIA Lens
 
 Capture runs in your model's PyTorch environment, with NAIA installed there. Viewing needs no PyTorch.

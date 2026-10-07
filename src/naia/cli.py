@@ -10,11 +10,13 @@ from .execution import launch, reconcile, run_stage
 from .storage import NAIAError, read_json
 from .suites import Suites, import_analysis
 from .tasks import Tasks
+from .reports import ReportError
 
 
 def parser():
     p = argparse.ArgumentParser(prog="naia", description="NAIA (Nazir's AI Assistant): local-first research workflow (development alpha)")
     p.add_argument("--project", help="Project root; otherwise discover .lab in ancestors")
+    p.add_argument("--reports-root", help="Project-relative report directory (default: .lab/reports)")
     sub = p.add_subparsers(dest="command", required=True)
     init = sub.add_parser("init")
     init.add_argument("--assistant", choices=ASSISTANTS, help="Install NAIA rules for Codex, Claude, or both")
@@ -24,6 +26,12 @@ def parser():
     sub.add_parser("policy")
     sub.add_parser("sync")
     sub.add_parser("demo")
+    reports = sub.add_parser("report", help="Find and validate existing HTML reports").add_subparsers(dest="report_action", required=True)
+    listing = reports.add_parser("list")
+    listing.add_argument("--query", default="")
+    listing.add_argument("--tag", action="append", default=[])
+    check = reports.add_parser("check")
+    check.add_argument("id", nargs="?")
     arch = sub.add_parser("arch", aliases=["lens"], help="Capture, view, and link model architectures")
     from naia_arch.cli import add_graph_commands
     arch_commands = add_graph_commands(arch)
@@ -132,6 +140,11 @@ def dispatch(args):
         from .demo import install
         return install(project)
     project.load()
+    if args.command == "report":
+        reports = project.reports(args.reports_root)
+        if args.report_action == "list":
+            return reports.search(args.query, args.tag)
+        return reports.check(args.id)
     if args.command in ("arch", "lens"):
         from .architectures import Architectures
         registry = Architectures(project)
@@ -214,7 +227,7 @@ def dispatch(args):
         return run_stage(project, args.record, "eval-" + args.profile if args.profile else "train", args.profile)
     if args.command == "ui":
         from .ui import serve
-        serve(project, args.port)
+        serve(project, args.port, reports_root=args.reports_root)
         return None
     raise NAIAError("Unknown command")
 
@@ -228,8 +241,10 @@ def main(argv=None):
         result = dispatch(args)
         if result is not None:
             print(json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False))
+        if args.command == "report" and args.report_action == "check" and not result["valid"]:
+            return 1
         return 1 if isinstance(result, dict) and result.get("ok") is False else 0
-    except (NAIAError, OSError, json.JSONDecodeError) as exc:
+    except (NAIAError, ReportError, OSError, json.JSONDecodeError) as exc:
         print(json.dumps({"error": str(exc)}), file=sys.stderr)
         return 2
 

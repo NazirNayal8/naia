@@ -1,11 +1,11 @@
 # NAIA
 
 NAIA (Nazir's AI Assistant) helps Codex and Claude organize research projects.
-It keeps tasks, experiment suites, results, and model diagrams together in your
+It keeps tasks, experiment suites, results, reports, and model diagrams together in your
 repository. You work through your existing assistant; a local browser UI lets
 you review the work and manage the task queue.
 
-Python 3.10+ · [MIT](https://github.com/NazirNayal8/naia/blob/main/LICENSE) · Alpha `0.1.0a6`
+Python 3.10+ · [MIT](https://github.com/NazirNayal8/naia/blob/main/LICENSE) · Alpha `0.1.0a7`
 
 ## Install
 
@@ -15,7 +15,7 @@ Install into a Python or Conda environment. Git must be available; no clone is n
 pip install "git+https://github.com/NazirNayal8/naia.git"
 ```
 
-Append `@v0.1.0a6` to the URL to install that release. NAIA is not yet published
+Append `@v0.1.0a7` to the URL to install that release. NAIA is not yet published
 on PyPI, so `pip install naia` is not the command for this project.
 
 NAIA's task/suite management and graph viewing need no GPU, PyTorch, or AI API key.
@@ -45,7 +45,7 @@ NAIA uses your existing trainer, evaluator, and config system.
 
 Ask the assistant to run `naia ui` to open the dashboard at
 [localhost:8767](http://127.0.0.1:8767). Edit tasks, reorder the queue, change suite
-status, and review cards there. Suite design and launches stay with your assistant
+status, and review cards or interactive reports there. Suite design and launches stay with your assistant
 or the CLI.
 
 For manual setup, run `naia init --assistant both` in your project, then ask the
@@ -60,6 +60,7 @@ to skip discovery. Use `codex` or `claude` if you use only one.
 - Experiment suites with result tables, run tracking, and suite relationships.
 - Sequential local runs or parallel Slurm jobs, with dependent evaluations.
 - Analysis assignments linked to their inputs and outputs.
+- Searchable HTML reports with tags, interactive controls, and links to related work.
 - NAIA Lens: a draggable, color-coded model graph with separate Flow and Hierarchy
   views, a reusable block glossary, intermediate tensor sizes, and captured-path playback.
   Lens is included in the same package and can also run on its own.

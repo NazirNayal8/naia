@@ -66,6 +66,12 @@ Sealing prevents new training. It does not cancel jobs or block evaluations.
 NAIA records the assignment and its evidence paths. Alex or an assistant still
 needs to perform the analysis.
 
+> Turn this analysis into an interactive report and attach it to the review task.
+
+The assistant uses approved results, adds HTML and metadata to the reports folder,
+validates it, and checks it in the Reports tab. Search, tag filters, and related
+task/suite links are provided by NAIA; figures and controls belong to the report.
+
 > Show this model's layers and tensor sizes in Lens. Attach it to the baseline suite.
 
 The assistant captures the model in its PyTorch environment and links the saved

@@ -1,5 +1,17 @@
 # Release notes
 
+## 0.1.0a7
+
+- Reports tab with text search, tag filters, and automatic folder discovery.
+- Isolated report viewer with themes, bookmarked controls, and suite/task links.
+- `naia report list` and `check`, configurable limits, and report workflow instructions.
+- Protected report assets and loopback write APIs; reports cannot modify project records.
+
+Existing projects refresh managed instructions with `naia instructions install` after upgrading.
+The shared chart kit and standalone export are planned for the next phase.
+
+Verified: 250 tests, browser parity/security checks, package builds, and isolated installation.
+
 ## 0.1.0a6
 
 - Project-aware names for major components and inputs/outputs, with cited evidence in the inspector.

@@ -46,7 +46,7 @@ function priorityColor(score) { const ratio=(Math.max(1,Math.min(100,Number(scor
 function oneSentence(value) { const text=String(value ?? '').trim(), match=text.match(/^.*?[.!?](?:\s|$)/); return match?match[0].trim():text; }
 function materialLink(material) {
   const value=String(material);
-  const url=/^https?:\/\//i.test(value)?value:'/material?path='+encodeURIComponent(value);
+  const url=/^report:[A-Z0-9_]+$/.test(value)?'/report?id='+encodeURIComponent(value.slice(7)):/^https?:\/\//i.test(value)?value:'/material?path='+encodeURIComponent(value);
   return '<a target="_blank" rel="noopener" href="'+esc(url)+'">'+esc(value)+'</a>';
 }
 function dependencies(task) {
@@ -190,8 +190,8 @@ async function renderArchive() {
   }
   if(!archived.length)host.append(element('div','No removed tasks have been archived.','empty'));
 }
-const VIEW_PANELS={queue:'queueView',suites:'suitesView',arch:'archView',archive:'archiveView'};
-const VIEW_SUBTITLES={queue:'Project queue · one decision at a time',suites:'Live experiment map · summaries and results',arch:'Network architectures · tensor shapes and observed calls',archive:'Removed tasks'};
+const VIEW_PANELS={queue:'queueView',suites:'suitesView',arch:'archView',reports:'reportsView',archive:'archiveView'};
+const VIEW_SUBTITLES={queue:'Project queue · one decision at a time',suites:'Live experiment map · summaries and results',arch:'Network architectures · tensor shapes and observed calls',reports:'Analysis reports · evidence and findings',archive:'Removed tasks'};
 async function setView(view,updateURL=false) {
   if(!VIEW_PANELS[view])view='queue';currentView=view;
   for(const [key,id] of Object.entries(VIEW_PANELS))$(id).hidden=key!==view;
@@ -204,6 +204,7 @@ async function setView(view,updateURL=false) {
   if(updateURL){const url=new URL(location.href);if(url.pathname==='/archive')url.pathname='/';if(view==='queue')url.searchParams.delete('view');else url.searchParams.set('view',view);history.pushState({view},'',url);}
   if(state&&view==='suites'&&!graphReady)renderSuiteGraph(true);
   if(state&&view==='archive')await renderArchive();
+  if(view==='reports'&&window.NAIAReports)await window.NAIAReports.show($('reportsView'));
 }
 function suiteStatus(suite) { return suite.ui_status || suite.status || 'proposed'; }
 function suiteGroup(status) {
@@ -426,6 +427,7 @@ async function refresh({reloadCard=false}={}) {
   if(currentView==='suites')renderSuiteGraph(true);
   if($('suiteDialog').open&&suiteById.has(selectedSuiteId))selectSuite(selectedSuiteId,{reloadCard});
   renderArchitectures();if(currentView==='archive')await renderArchive();
+  if(currentView==='reports'&&window.NAIAReports)await window.NAIAReports.refresh();
 }
 for(const tab of document.querySelectorAll('[data-view]'))tab.addEventListener('click',guarded(()=>setView(tab.dataset.view,true)));
 document.querySelector('nav').addEventListener('keydown',event=>{
@@ -452,4 +454,8 @@ $('sync').addEventListener('click',guarded(async()=>{await request('/api/sync',{
 window.addEventListener('resize',()=>{if(graphReady)applyGraphView();});
 window.addEventListener('popstate',()=>setView(location.pathname==='/archive'?'archive':new URLSearchParams(location.search).get('view') || 'queue').catch(error=>message(error.message,true)));
 const initialView=location.pathname==='/archive'?'archive':new URLSearchParams(location.search).get('view') || stored(VIEW_KEY,'queue');
-setView(initialView).then(refresh).catch(error=>message(error.message,true));
+setView(initialView).then(refresh).then(()=>{
+  const query=new URLSearchParams(location.search),suite=query.get('suite'),task=query.get('task');
+  if(initialView==='suites'&&suiteById.has(suite)){selectSuite(suite);$('suiteDialog').showModal();}
+  if(initialView==='queue'&&task){const card=[...$('deck').querySelectorAll('[data-id]')].find(node=>node.dataset.id===task);if(card){unpacked=true;applyDeck();const details=card.querySelector('.details');if(details)details.classList.add('open');const toggle=card.querySelector('[data-detail]');if(toggle){toggle.textContent='Hide details';toggle.setAttribute('aria-expanded','true');}card.scrollIntoView({block:'center'});}}
+}).catch(error=>message(error.message,true));

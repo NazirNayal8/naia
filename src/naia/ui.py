@@ -6,16 +6,19 @@ from importlib.resources import files
 import json
 import mimetypes
 import secrets
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, unquote
 
 from .architectures import Architectures
 from .materials import MaterialRenderer, MATHJAX_ROOT
 from .storage import NAIAError, read_json
 from .suites import Suites, UI_STATUSES
 from .tasks import Tasks
+from .reports import ReportError, report_csp
+from .report_view import viewer_html
 
 
-def handler(project, token):
+def handler(project, token, *, reports_root=None):
+    reports = project.reports(reports_root)
     def state():
         registry_path = project.directory / "state/registry.json"
         suites = read_json(registry_path)["suites"]
@@ -68,7 +71,7 @@ def handler(project, token):
                             placement=data.get("placement", "bottom"))
 
     class Handler(BaseHTTPRequestHandler):
-        def send(self, code, body, content_type="application/json", *, embeddable=False):
+        def send(self, code, body, content_type="application/json", *, embeddable=False, csp=None):
             content = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode()
             self.send_response(code)
             self.send_header("Content-Type", content_type)
@@ -76,7 +79,10 @@ def handler(project, token):
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             ancestors = "'self'" if embeddable else "'none'"
-            self.send_header("Content-Security-Policy", f"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; frame-src 'self'; frame-ancestors {ancestors}")
+            self.send_header("Content-Security-Policy", csp or f"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; frame-src 'self'; frame-ancestors {ancestors}")
+            self.send_header("Referrer-Policy", "no-referrer")
+            if csp is not None and content_type.startswith("font/"):
+                self.send_header("Access-Control-Allow-Origin", "null")
             self.end_headers()
             self.wfile.write(content)
 
@@ -89,6 +95,28 @@ def handler(project, token):
                 return self.send(403, {"error": "Unexpected Host"})
             request_url = urlparse(self.path)
             path = request_url.path
+            if path.startswith("/api/") and self.headers.get("Origin") not in (
+                    None, f"http://127.0.0.1:{self.server.server_port}", f"http://localhost:{self.server.server_port}"):
+                return self.send(403, {"error": "Local API origin required"})
+            if path in ("/api/reports", "/report") or path.startswith("/reports/"):
+                try:
+                    query = parse_qs(request_url.query, keep_blank_values=True)
+                    if path == "/api/reports":
+                        if set(query) - {"q", "tag"} or len(query.get("q", [])) > 1:
+                            raise ReportError("Expected one query and repeatable tag filters")
+                        return self.send(200, reports.search(query.get("q", [""])[0], query.get("tag", [])))
+                    if path == "/report":
+                        if len(query.get("id", [])) != 1 or not query["id"][0]:
+                            raise ReportError("One report ID is required")
+                        return self.send(200, viewer_html(reports.get(query["id"][0])).encode(), "text/html; charset=utf-8")
+                    report_id, separator, filename = unquote(path[len("/reports/"):]).partition("/")
+                    if not separator or query:
+                        raise ReportError("One report asset is required")
+                    body, mime = reports.asset(report_id, filename)
+                    return self.send(200, body, mime, embeddable=True,
+                                     csp=report_csp(f"http://{self.headers['Host']}", f"/reports/{report_id}/"))
+                except (ReportError, OSError, ValueError) as exc:
+                    return self.send(404, {"error": str(exc)})
             if path == "/api/state":
                 try:
                     return self.send(200, state())
@@ -108,6 +136,14 @@ def handler(project, token):
                     relative = (str((Suites(project).location(query[key][0]) / "card.md").relative_to(project.root))
                                 if path == "/suite-card" else query[key][0])
                     renderer = MaterialRenderer(project)
+                    report_target = reports.match_path(relative)
+                    if report_target is not None:
+                        report_id, filename = report_target
+                        body, mime = reports.asset(report_id, filename)
+                        if path != "/asset" and filename == "index.html":
+                            return self.send(200, viewer_html(reports.get(report_id)).encode(), "text/html; charset=utf-8")
+                        return self.send(200, body, mime, embeddable=True,
+                                         csp=report_csp(f"http://{self.headers['Host']}", f"/reports/{report_id}/"))
                     if path == "/asset":
                         target = project.path(relative)
                         if target.suffix.lower() not in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf"):
@@ -117,14 +153,13 @@ def handler(project, token):
                     renderer.read_text(relative)  # Validate the original URL path before resolving it.
                     return self.send(200, renderer.render_material_page(project.path(relative)),
                                      "text/html; charset=utf-8", embeddable=True)
-                except (NAIAError, OSError, ValueError) as exc:
+                except (NAIAError, ReportError, OSError, ValueError) as exc:
                     return self.send(400, {"error": str(exc)})
             if path == "/mathjax-config.js":
                 config = r'''window.MathJax={messageStyle:"none",showMathMenu:false,tex2jax:{inlineMath:[["$","$"],["\\(","\\)"]],displayMath:[["$$","$$"],["\\[","\\]"]],processEscapes:true,skipTags:["script","noscript","style","textarea","pre","code"]},SVG:{font:"TeX"}};'''
                 return self.send(200, config.encode(), "text/javascript; charset=utf-8")
             if path.startswith("/mathjax/"):
                 try:
-                    from urllib.parse import unquote
                     target = (MATHJAX_ROOT / unquote(path[len("/mathjax/"):])).resolve()
                     if not target.is_relative_to(MATHJAX_ROOT) or not target.is_file():
                         raise NAIAError("Invalid MathJax asset path")
@@ -155,7 +190,10 @@ def handler(project, token):
             assets = {"/": ("index.html", "text/html; charset=utf-8"),
                       "/archive": ("index.html", "text/html; charset=utf-8"),
                       "/app.js": ("app.js", "text/javascript; charset=utf-8"),
-                      "/style.css": ("style.css", "text/css; charset=utf-8")}
+                      "/style.css": ("style.css", "text/css; charset=utf-8"),
+                      "/reports.js": ("reports.js", "text/javascript; charset=utf-8"),
+                      "/reports_viewer.js": ("reports_viewer.js", "text/javascript; charset=utf-8"),
+                      "/reports.css": ("reports.css", "text/css; charset=utf-8")}
             if path not in assets:
                 return self.send(404, {"error": "Not found"})
             filename, mime = assets[path]
@@ -167,6 +205,8 @@ def handler(project, token):
             session_token = self.headers.get("X-NAIA-Token", self.headers.get("X-Lab-Token"))
             if not self.host_valid() or origin not in allowed_origin or session_token != token:
                 return self.send(403, {"error": "Local origin and session token required"})
+            if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
+                return self.send(415, {"error": "JSON content type required"})
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 if not 0 < length <= 65536:
@@ -195,8 +235,8 @@ def handler(project, token):
     return Handler
 
 
-def serve(project, port=8767):
-    server = ThreadingHTTPServer(("127.0.0.1", port), handler(project, secrets.token_urlsafe(32)))
+def serve(project, port=8767, *, reports_root=None):
+    server = ThreadingHTTPServer(("127.0.0.1", port), handler(project, secrets.token_urlsafe(32), reports_root=reports_root))
     print(f"NAIA: http://127.0.0.1:{server.server_port}", flush=True)
     try:
         server.serve_forever()
