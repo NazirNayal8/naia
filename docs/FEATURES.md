@@ -180,6 +180,22 @@ then `R.figure` with an explicit numeric `value` field. Controls filter rows;
 unmapped varying fields and duplicate coordinates produce visible errors instead
 of silent averaging. Missing values stay missing. Reports can still use bespoke code.
 
+Use **Edit report**, then **Save** or **Cancel**, to revise marked prose and static captions
+in the viewer. Drafts stay in the browser until Save; concurrent source edits reject
+the save and keep your draft visible. Each save retains one previous HTML version at
+`<reports_directory>/.naia-edit/<ID>/index.previous.html`. Charts, data, metadata, and
+offline exports stay read-only. New drafts support editing; existing reports need
+`/reports/_kit/naia_report_editor.js` and unique `data-naia-edit="ID"` markers on plain
+text leaves. Mark spans inside formatted prose, not the whole paragraph or generated
+chart captions. The report iframe never receives a write token.
+Managed reports also support adding/removing sections and moving sections or whole
+visuals with drag handles or move buttons. Removed sections can be restored; their
+data stays intact. Editing keeps your scroll position and leaves text unboxed.
+To enable layout editing, mark one `data-naia-layout` root, its `data-naia-section`
+containers (also their own layouts), and direct `data-naia-item` children. Mark
+visuals with `data-naia-kind="visual"`; keep scripts/data outside these units.
+Source saves currently require POSIX filesystem locking and descriptor-relative writes.
+
 Override the directory with `naia --reports-root PATH ui`, or store
 `reports_directory` in the confirmed `reporting` context value. It must stay inside
 the project and respect inspection exclusions; symlinks and sensitive files are denied.

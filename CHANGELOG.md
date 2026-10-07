@@ -1,5 +1,16 @@
 # Release notes
 
+## 0.1.0a9
+
+- Inline editing of marked report text and static captions with Save/Cancel.
+- Scroll-preserving, unboxed editing; add, remove, restore, and rearrange sections and visuals.
+- Source-only patches, conflict detection, and one recoverable previous HTML version.
+- Report data, charts, metadata, and offline exports remain read-only.
+
+Existing projects refresh managed instructions with `naia instructions install` after upgrading.
+
+Verified: 326 tests, 28 local/exported browser checks, package builds, and isolated installation.
+
 ## 0.1.0a8
 
 - Shared SVG report kit: bars, lines, scatter plots, tables, controls, and keyboard tooltips.

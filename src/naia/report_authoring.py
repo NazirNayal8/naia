@@ -28,6 +28,7 @@ class AuthoringError(ValueError):
 
 KIT_URL = "/reports/_kit/naia_report_kit.js"
 KIT_CSS_URL = "/reports/_kit/naia_report_kit.css"
+EDITOR_URL = "/reports/_kit/naia_report_editor.js"
 OFFLINE_CSP = (
     "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
     "img-src data:; font-src data:; media-src data:; connect-src 'none'; "
@@ -164,11 +165,17 @@ def new_report(library, report_id, title, *, summary="Report draft.", date=None,
         ":root[data-theme=light]{color-scheme:light;--bg:#f6f7f9;--ink:#0f1419}"
         "body{background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,sans-serif;margin:0}"
         "main{max-width:68ch;margin:auto;padding:36px 24px}"
-        "</style></head><body><main><h1>" + escape(title) + "</h1>"
-        "<p>" + escape(summary) + "</p><p>Add approved findings and their source tables here.</p>"
+        "[data-naia-section][hidden]{display:none!important}section{margin:28px 0}"
+        "</style></head><body><main><h1 data-naia-edit=\"heading\">" + escape(title) + "</h1>"
+        "<p data-naia-edit=\"summary\">" + escape(summary) + "</p>"
+        "<div data-naia-layout=\"report\"><section data-naia-section=\"findings\" data-naia-layout=\"findings\">"
+        "<h2 data-naia-item=\"findings-title\" data-naia-edit=\"findings-title\">Findings</h2>"
+        "<p data-naia-item=\"findings-text\" data-naia-edit=\"finding\">Add approved findings and their source tables here.</p>"
+        "</section></div>"
         "</main><script id=\"report-data\" type=\"application/json\">{}</script>"
         "<script src=\"" + KIT_URL + "\"></script>"
         "<script>const R=NAIAReport.init({data:'#report-data',controls:{},series:{}});</script>"
+        "<script src=\"" + EDITOR_URL + "\" defer></script>"
         "</body></html>\n").encode("utf-8")
     limits = getattr(library, "limits", {})
     if len(metadata) > limits.get("meta_bytes", 65536) or len(document) > limits.get("html_bytes", 2097152):
@@ -441,6 +448,7 @@ class _HTMLBundle(HTMLParser):
             self.heads += 1
             self.append(self.get_starttag_text())
             self.append('<meta http-equiv="Content-Security-Policy" content="' + escape(OFFLINE_CSP, quote=True) + '">')
+            self.append('<style>[data-naia-section][hidden]{display:none!important}</style>')
             return
         if tag == "meta" and attrs.get("http-equiv", "").lower() == "content-security-policy":
             return
@@ -470,6 +478,11 @@ class _HTMLBundle(HTMLParser):
         if self.svg and tag == "script":
             script_url = script_url or attrs.get("href") or attrs.get("xlink:href")
         if script_url:
+            if script_url == EDITOR_URL:
+                # Offline snapshots have no source-writing wrapper. Strip its
+                # bridge rather than exporting a nonfunctional editing control.
+                self.skip_script = not closed
+                return
             if (attrs.get("type") or "").strip().lower() == "module":
                 raise AuthoringError("Module script dependencies are unsupported")
             if "async" in attrs:

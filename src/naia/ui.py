@@ -13,12 +13,14 @@ from .materials import MaterialRenderer, MATHJAX_ROOT
 from .storage import NAIAError, read_json
 from .suites import Suites, UI_STATUSES
 from .tasks import Tasks
-from .reports import ReportError, report_csp, KIT_JS_ROUTE, KIT_CSS_ROUTE
+from .reports import ReportError, report_csp, KIT_JS_ROUTE, KIT_CSS_ROUTE, EDITOR_JS_ROUTE
 from .report_view import viewer_html
+from .report_editing import ReportEditor, EditConflict
 
 
 def handler(project, token, *, reports_root=None):
     reports = project.reports(reports_root)
+    editor = ReportEditor(reports)
     def state():
         registry_path = project.directory / "state/registry.json"
         suites = read_json(registry_path)["suites"]
@@ -99,7 +101,8 @@ def handler(project, token, *, reports_root=None):
                     None, f"http://127.0.0.1:{self.server.server_port}", f"http://localhost:{self.server.server_port}"):
                 return self.send(403, {"error": "Local API origin required"})
             kit_assets = {KIT_JS_ROUTE: ("report_kit.js", "text/javascript; charset=utf-8"),
-                          KIT_CSS_ROUTE: ("report_kit.css", "text/css; charset=utf-8")}
+                          KIT_CSS_ROUTE: ("report_kit.css", "text/css; charset=utf-8"),
+                          EDITOR_JS_ROUTE: ("report_editor.js", "text/javascript; charset=utf-8")}
             if path in kit_assets:
                 filename, mime = kit_assets[path]
                 asset = files("naia").joinpath("assets", filename)
@@ -116,7 +119,7 @@ def handler(project, token, *, reports_root=None):
                     if path == "/report":
                         if len(query.get("id", [])) != 1 or not query["id"][0]:
                             raise ReportError("One report ID is required")
-                        return self.send(200, viewer_html(reports.get(query["id"][0])).encode(), "text/html; charset=utf-8")
+                        return self.send(200, viewer_html(reports.get(query["id"][0]), edit_token=token).encode(), "text/html; charset=utf-8")
                     report_id, separator, filename = unquote(path[len("/reports/"):]).partition("/")
                     if not separator or query:
                         raise ReportError("One report asset is required")
@@ -149,7 +152,7 @@ def handler(project, token, *, reports_root=None):
                         report_id, filename = report_target
                         body, mime = reports.asset(report_id, filename)
                         if path != "/asset" and filename == "index.html":
-                            return self.send(200, viewer_html(reports.get(report_id)).encode(), "text/html; charset=utf-8")
+                            return self.send(200, viewer_html(reports.get(report_id), edit_token=token).encode(), "text/html; charset=utf-8")
                         return self.send(200, body, mime, embeddable=True,
                                          csp=report_csp(f"http://{self.headers['Host']}", f"/reports/{report_id}/"))
                     if path == "/asset":
@@ -210,19 +213,27 @@ def handler(project, token, *, reports_root=None):
         def do_POST(self):
             origin = self.headers.get("Origin")
             allowed_origin = {f"http://127.0.0.1:{self.server.server_port}", f"http://localhost:{self.server.server_port}"}
-            session_token = self.headers.get("X-NAIA-Token", self.headers.get("X-Lab-Token"))
-            if not self.host_valid() or origin not in allowed_origin or session_token != token:
+            session_token = self.headers.get("X-NAIA-Token", self.headers.get("X-Lab-Token", ""))
+            if not self.host_valid() or origin not in allowed_origin or not secrets.compare_digest(session_token.encode("utf-8"), token.encode("utf-8")):
                 return self.send(403, {"error": "Local origin and session token required"})
             if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
                 return self.send(415, {"error": "JSON content type required"})
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if not 0 < length <= 65536:
+                # Escaped prose plus bounded section/item coordinates can exceed 64 KiB.
+                limit = 196608 if self.path == "/api/report-save" else 65536
+                if not 0 < length <= limit:
                     raise NAIAError("Invalid request size")
                 data = json.loads(self.rfile.read(length))
                 if not isinstance(data, dict):
                     raise NAIAError("Request body must be a JSON object")
-                if self.path in ("/api/task", "/api/action"):
+                if self.path in ("/api/report-edit", "/api/report-save"):
+                    fields = {"id"} if self.path.endswith("edit") else {"id", "revision", "changes"}
+                    if set(data) not in (fields, fields | {"layout"}) or self.path.endswith("edit") and "layout" in data:
+                        raise NAIAError("Unexpected report edit fields")
+                    result = (editor.snapshot(data["id"]) if self.path.endswith("edit") else
+                              editor.save(data["id"], data["revision"], data["changes"], layout=data.get("layout")))
+                elif self.path in ("/api/task", "/api/action"):
                     item = task_action(data)
                     tasks = Tasks(project)
                     focus = tasks.next()
@@ -238,6 +249,8 @@ def handler(project, token, *, reports_root=None):
                 else:
                     return self.send(404, {"error": "Not found"})
                 return self.send(200, result)
+            except EditConflict as exc:
+                return self.send(409, {"error": str(exc)})
             except (NAIAError, OSError, ValueError, KeyError, TypeError) as exc:
                 return self.send(400, {"error": str(exc)})
     return Handler

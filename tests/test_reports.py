@@ -386,7 +386,9 @@ class ReportsHTTPTest(unittest.TestCase):
         self.assertIn('id="reportFrame"', text)
         self.assertIn("allow-scripts", text)
         self.assertNotIn("allow-same-origin", text)
-        self.assertNotIn("reports-test-token", text)
+        # The trusted wrapper owns the save credential, never the report frame.
+        self.assertIn('id="reportEdit"', text)
+        self.assertNotIn("reports-test-token", self.request("/reports/SAFE/index.html")[1].decode())
         for path in ("/reports.js", "/reports.css", "/reports_viewer.js"):
             with self.subTest(path=path):
                 self.assertEqual(self.request(path)[0], 200)
@@ -509,6 +511,7 @@ class ReportsHTTPTest(unittest.TestCase):
         self.assertIn(self.base + "/reports/SAFE/", csp)
         self.assertIn(self.base + "/reports/_kit/naia_report_kit.js", csp)
         self.assertIn(self.base + "/reports/_kit/naia_report_kit.css", csp)
+        self.assertIn(self.base + "/reports/_kit/naia_report_editor.js", csp)
         self.assertNotIn("script-src 'self'", csp)
         self.assertNotIn(self.base + "/api/", csp)
         for path in ("/reports/_kit/other.js", "/reports/_kit/../api/state",
@@ -519,6 +522,128 @@ class ReportsHTTPTest(unittest.TestCase):
                      "/reports/_kit/naia_report_kit.js%3fapi/state"):
             with self.subTest(path=path):
                 self.assertIn(self.request(path)[0], (400, 403, 404))
+
+    def editable_fixture(self):
+        document = ('<!doctype html><html><head><title>Local evidence</title></head><body>'
+                    '<p data-naia-edit="finding">Original &amp; finding</p>'
+                    '<script id="data" type="application/json">{"value":42}</script>'
+                    '<script src="/reports/_kit/naia_report_editor.js" defer></script>'
+                    '</body></html>')
+        (self.folder / "index.html").write_text(document)
+        return document.encode()
+
+    def test_editor_is_readonly_for_legacy_reports(self):
+        status, snapshot, _ = self.api("/api/report-edit", payload={"id": "SAFE"}, authenticated=True)
+        self.assertEqual(status, 200)
+        self.assertFalse(snapshot["editable"])
+        self.assertTrue(snapshot["reason"])
+        self.assertEqual(snapshot["blocks"], [])
+
+    def test_editor_save_preserves_data_and_refreshes_search(self):
+        old = self.editable_fixture()
+        meta = (self.folder / "meta.json").read_bytes()
+        _, snapshot, _ = self.api("/api/report-edit", payload={"id": "SAFE"}, authenticated=True)
+        self.assertTrue(snapshot["editable"])
+        self.assertEqual(snapshot["blocks"], [{"id": "finding", "text": "Original & finding"}])
+        status, saved, _ = self.api("/api/report-save", payload={"id": "SAFE",
+            "revision": snapshot["revision"], "changes": {"finding": "Newneedle <b>literal</b> & finding"}}, authenticated=True)
+        self.assertEqual(status, 200, saved)
+        updated = (self.folder / "index.html").read_bytes()
+        self.assertEqual(updated, old.replace(b"Original &amp; finding", b"Newneedle &lt;b&gt;literal&lt;/b&gt; &amp; finding"))
+        self.assertNotEqual(saved["revision"], snapshot["revision"])
+        self.assertEqual((self.root / saved["backup"]).read_bytes(), old)
+        self.assertEqual((self.folder / "meta.json").read_bytes(), meta)
+        self.assertEqual(self.api("/api/reports?q=Newneedle")[1]["reports"][0]["id"], "SAFE")
+        for route in ("/reports/.naia-edit/SAFE/index.previous.html",
+                      "/asset?path=reports%2F.naia-edit%2FSAFE%2Findex.previous.html"):
+            self.assertIn(self.request(route)[0], (400, 403, 404))
+        self.assertEqual(self.request("/reports/_kit/naia_report_editor.js")[0], 200)
+
+    def test_editor_conflict_does_not_overwrite_external_changes(self):
+        self.editable_fixture()
+        _, snapshot, _ = self.api("/api/report-edit", payload={"id": "SAFE"}, authenticated=True)
+        target = self.folder / "index.html"
+        target.write_bytes(target.read_bytes().replace(b"Original", b"Externally edited"))
+        before = target.read_bytes()
+        status, _, _ = self.api("/api/report-save", payload={"id": "SAFE", "revision": snapshot["revision"],
+            "changes": {"finding": "Browser draft"}}, authenticated=True)
+        self.assertEqual(status, 409)
+        self.assertEqual(target.read_bytes(), before)
+
+    def test_editor_rejects_invalid_ids_and_unmarked_changes(self):
+        old = self.editable_fixture()
+        _, snapshot, _ = self.api("/api/report-edit", payload={"id": "SAFE"}, authenticated=True)
+        for changes in ({"data": "replacement"}, {"finding": 1}, {"finding": "x" * 8193}):
+            status, _, _ = self.api("/api/report-save", payload={"id": "SAFE",
+                "revision": snapshot["revision"], "changes": changes}, authenticated=True)
+            self.assertEqual(status, 400)
+            self.assertEqual((self.folder / "index.html").read_bytes(), old)
+        for value in ("../SAFE", "SAFE/index.html", "SAFE%2Findex.html"):
+            self.assertEqual(self.api("/api/report-edit", payload={"id": value}, authenticated=True)[0], 400)
+
+    def test_editor_layout_api_preserves_chart_source_and_rejects_unknown_fields(self):
+        target = self.folder / "index.html"
+        source = ('<!doctype html><html><head><title>Local evidence</title></head><body>'
+            '<main data-naia-layout="report">'
+            '<section data-naia-section="first" data-naia-layout="first">'
+            '<h2 data-naia-item="first-title" data-naia-edit="first-title">First</h2>'
+            '<figure data-naia-item="plot" data-naia-kind="visual"><div id="plot-target"></div></figure></section>'
+            '<section data-naia-section="second" data-naia-layout="second">'
+            '<h2 data-naia-item="second-title" data-naia-edit="second-title">Second</h2></section></main>'
+            '<script id="data" type="application/json">{"value":42}</script>'
+            '<script src="/reports/_kit/naia_report_editor.js" defer></script></body></html>')
+        target.write_text(source)
+        status, snapshot, _ = self.api("/api/report-edit", payload={"id": "SAFE"}, authenticated=True)
+        self.assertEqual(status, 200, snapshot)
+        self.assertEqual(len(snapshot["layout"]["sections"]), 2)
+        layout = {"orders": {"report": ["second", "third", "first"],
+            "first": ["first-title"], "second": ["second-title", "plot"],
+            "third": ["third-title", "third-text"]}, "hidden": ["first"],
+            "add": [{"id": "third", "container": "report", "title": "<b>Literal title</b>", "text": "New section."}]}
+        status, saved, _ = self.api("/api/report-save", payload={"id": "SAFE",
+            "revision": snapshot["revision"], "changes": {}, "layout": layout}, authenticated=True)
+        self.assertEqual(status, 200, saved)
+        updated = target.read_text()
+        self.assertIn('&lt;b&gt;Literal title&lt;/b&gt;', updated)
+        self.assertIn('<script id="data" type="application/json">{"value":42}</script>', updated)
+        self.assertEqual(updated.count('id="plot-target"'), 1)
+        self.assertEqual(saved["layout"]["containers"][0]["order"], ["second", "third", "first"])
+        self.assertEqual((self.root / saved["backup"]).read_text(), source)
+        status, _, _ = self.api("/api/report-save", payload={"id": "SAFE",
+            "revision": saved["revision"], "changes": {}, "layout": {"orders": {"second": []}, "hidden": [], "add": []}},
+            authenticated=True)
+        self.assertEqual(status, 400)
+        self.assertEqual(target.read_text(), updated)
+        self.assertEqual(self.api("/api/report-edit", payload={"id": "SAFE", "layout": layout}, authenticated=True)[0], 400)
+
+    def test_editor_save_accepts_bounded_escaped_prose_but_not_oversized_requests(self):
+        target = self.folder / "index.html"
+        source = ('<!doctype html><html><head><title>Local evidence</title></head><body>'
+            + ''.join('<p data-naia-edit="' + key + '">Old</p>' for key in "abcd")
+            + '<script src="/reports/_kit/naia_report_editor.js" defer></script></body></html>')
+        target.write_text(source)
+        _, snapshot, _ = self.api("/api/report-edit", payload={"id": "SAFE"}, authenticated=True)
+        payload = {"id": "SAFE", "revision": snapshot["revision"], "changes": {key: "\n" * 8192 for key in "abcd"}}
+        self.assertGreater(len(json.dumps(payload).encode()), 65536)
+        status, saved, _ = self.api("/api/report-save", payload=payload, authenticated=True)
+        self.assertEqual(status, 200, saved)
+        self.assertEqual(sum(len(block["text"]) for block in saved["blocks"]), 32768)
+        before = target.read_bytes()
+        status, _, _ = self.api("/api/report-save", raw=b" " * 196609, authenticated=True)
+        self.assertEqual(status, 400)
+        self.assertEqual(target.read_bytes(), before)
+
+    def test_editor_requires_trusted_origin_and_token(self):
+        old = self.editable_fixture()
+        for route, payload in (("/api/report-edit", {"id": "SAFE"}),
+                               ("/api/report-save", {"id": "SAFE", "revision": "0" * 64, "changes": {"finding": "Attack"}})):
+            for headers in ({}, {"Origin": "null", "X-NAIA-Token": self.token},
+                            {"Origin": self.base, "X-NAIA-Token": "wrong"},
+                            {"Origin": self.base, "X-NAIA-Token": "é"},
+                            {"Origin": self.base, "X-NAIA-Token": self.token, "Host": "evil.invalid"}):
+                self.assertEqual(self.request(route, payload, headers=headers)[0], 403)
+            self.assertEqual(self.request(route, headers={"Origin": "null"})[0], 403)
+        self.assertEqual((self.folder / "index.html").read_bytes(), old)
 
     def test_authoring_cli_new_check_export_and_no_overwrite(self):
         result = self.cli("report", "new", "NEW_DRAFT", "--title", "Empty scientific draft")

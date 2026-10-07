@@ -4,7 +4,7 @@ from html import escape
 from urllib.parse import quote
 
 
-def viewer_html(meta, *, back_url="/?view=reports", suite_url=None, task_url=None):
+def viewer_html(meta, *, back_url="/?view=reports", suite_url=None, task_url=None, edit_token=None):
     """Render a report wrapper; callbacks provide project-specific related links."""
     report_id = str(meta.get("id", ""))
     title = str(meta.get("title") or report_id or "Report")
@@ -43,11 +43,19 @@ def viewer_html(meta, *, back_url="/?view=reports", suite_url=None, task_url=Non
         "<title>" + text(title) + " · NAIA</title>"
         '<link rel="stylesheet" href="/reports.css">'
         '<script src="/reports_viewer.js" defer></script></head>'
-        '<body class="naia-report-viewer" data-theme="dark">'
+        '<body class="naia-report-viewer" data-theme="dark" data-report-id="' + text(report_id) + '"'
+        + (' data-report-edit-token="' + text(edit_token) + '"' if edit_token else '') + '>'
         '<header class="nr-viewer-bar"><a id="reportBack" class="nr-viewer-back" href="' + text(back_url) + '">← NAIA</a>'
         '<div class="nr-viewer-title"><h1>' + text(title) + '</h1><div class="nr-viewer-meta">' + "".join(metadata) + "</div></div>"
-        '<div class="nr-viewer-actions"><button id="reportTheme" type="button" class="nr-control" aria-pressed="false">Theme: Dark</button>'
+        '<div class="nr-viewer-actions"><div class="nr-viewer-edit-controls" role="group" aria-label="Report editing">'
+        '<button id="reportEdit" type="button" class="nr-control" disabled aria-describedby="reportEditStatus">Edit report</button>'
+        '<button id="reportSave" type="button" class="nr-control nr-save" hidden disabled>Save</button>'
+        '<button id="reportCancel" type="button" class="nr-control" hidden>Cancel</button>'
+        '<span id="reportDirty" class="nr-edit-dirty" hidden>Unsaved changes</span></div>'
+        '<button id="reportTheme" type="button" class="nr-control" aria-pressed="false">Theme: Dark</button>'
         '<a id="reportOpen" class="nr-control" href="' + text(source) + '" target="_blank" rel="noopener">Open alone ↗</a></div></header>'
+        '<p id="reportEditStatus" class="nr-edit-status" role="status" aria-live="polite">'
+        + ('Checking report editing…' if edit_token else 'Report editing is unavailable in this viewer.') + '</p>'
         '<main class="nr-viewer-content"><iframe id="reportFrame" title="' + text(title) + '" sandbox="allow-scripts allow-popups" src="' + text(source) + '"></iframe>'
         '<p id="reportViewerStatus" class="nr-viewer-status" role="status" aria-live="polite">Loading report…</p></main></body></html>'
     )

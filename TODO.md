@@ -20,6 +20,8 @@
 - [x] Render suite Markdown instead of showing its source.
 - [x] Search and view interactive HTML reports.
 - [x] Shared report charts, report scaffolding, and standalone export.
+- [x] In-place report text editing with explicit saves and conflict detection.
+- [x] Add/remove report sections and rearrange sections/visuals without rewriting chart data.
 - [ ] Include scheduler reconciliation in refresh, not just saved results.
 
 See [features and limits](docs/FEATURES.md) for current behavior.

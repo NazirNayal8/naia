@@ -46,6 +46,7 @@ DEFAULT_LIMITS = {
 _ID = re.compile(r"^[A-Z0-9_]+$")
 KIT_JS_ROUTE = "/reports/_kit/naia_report_kit.js"
 KIT_CSS_ROUTE = "/reports/_kit/naia_report_kit.css"
+EDITOR_JS_ROUTE = "/reports/_kit/naia_report_editor.js"
 _DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 _MIMES = {
     ".html": "text/html; charset=utf-8",
@@ -137,7 +138,7 @@ def report_csp(origin: str | None = None, report_route: str | None = None) -> st
                 or any(p in {".", ".."} for p in report_route.split("/"))):
             raise ReportError("Invalid report CSP route")
         source = origin.rstrip("/") + report_route
-        kit_script = " " + origin.rstrip("/") + KIT_JS_ROUTE
+        kit_script = " " + origin.rstrip("/") + KIT_JS_ROUTE + " " + origin.rstrip("/") + EDITOR_JS_ROUTE
         kit_style = " " + origin.rstrip("/") + KIT_CSS_ROUTE
     return (
         "sandbox allow-scripts allow-popups; default-src 'none'; "
@@ -513,7 +514,7 @@ class Reports:
             return
         if any(c in raw for c in "\x00\r\n\\"):
             raise ReportError("Invalid report resource URL")
-        if ((raw == KIT_JS_ROUTE and kind == "resource")
+        if ((raw in {KIT_JS_ROUTE, EDITOR_JS_ROUTE} and kind == "resource")
                 or (raw == KIT_CSS_ROUTE and kind == "stylesheet")):
             # Trusted packaged assets only; this is not a general shared-file route.
             return

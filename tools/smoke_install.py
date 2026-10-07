@@ -34,7 +34,7 @@ def main():
     if len(licenses) != 1 or "Copyright (c) 2026 Nazir Nayal" not in installed.locate_file(licenses[0]).read_text():
         raise RuntimeError("Missing packaged MIT license")
     for package, script in (("naia", "app.js"), ("naia_arch", "viewer.js")):
-        extra = ('blocks.js',) if package == 'naia_arch' else ('reports.js', 'reports.css', 'reports_viewer.js', 'report_kit.js')
+        extra = ('blocks.js',) if package == 'naia_arch' else ('reports.js', 'reports.css', 'reports_viewer.js', 'report_kit.js', 'report_editor.js')
         for asset in ("index.html", "style.css", script, *extra):
             if not files(package).joinpath("assets", asset).is_file():
                 raise RuntimeError(f"Missing installed asset: {package}/{asset}")
@@ -108,11 +108,30 @@ def main():
             raise RuntimeError("Installed report discovery, validation, or search failed")
         run("--project", str(project), "report", "new", "KIT_DRAFT", "--title", "Kit draft")
         draft = json.loads(run("--project", str(project), "report", "check", "KIT_DRAFT").stdout)
+        from naia.reports import Reports
+        from naia.report_editing import ReportEditor
+        editor = ReportEditor(Reports(project, ".lab/reports"))
+        snapshot = editor.snapshot("KIT_DRAFT")
+        if not snapshot["editable"]:
+            raise RuntimeError("Installed report draft has no text editor")
+        saved = editor.save("KIT_DRAFT", snapshot["revision"], {"finding": "Installed text editor works."})
+        if not (project / saved["backup"]).is_file() or saved["revision"] == snapshot["revision"]:
+            raise RuntimeError("Installed text editor or recovery backup failed")
+        if not saved.get("layout"):
+            raise RuntimeError("Installed draft has no section editor")
+        layout = {"orders": {"report": ["followup", "findings"]}, "hidden": ["findings"],
+                  "add": [{"id": "followup", "container": "report", "title": "Follow-up",
+                           "text": "First line.\nSecond line."}]}
+        arranged = editor.save("KIT_DRAFT", saved["revision"], {}, layout=layout)
+        if arranged["layout"]["containers"][0]["order"] != ["followup", "findings"]:
+            raise RuntimeError("Installed section editor did not persist its layout")
         exported = json.loads(run("--project", str(project), "report", "export", "KIT_DRAFT",
                                  "--out", "exports/kit-draft.html").stdout)
         standalone = Path(exported["path"]).read_text()
         if (not draft["valid"] or '/reports/_kit/' in standalone
-                or 'window.NAIAReport' not in standalone or "connect-src 'none'" not in unescape(standalone)):
+                or 'window.NAIAReport' not in standalone or "connect-src 'none'" not in unescape(standalone)
+                or "Installed text editor works." not in standalone or "First line.\nSecond line." not in standalone
+                or '[data-naia-section][hidden]{display:none!important}' not in standalone):
             raise RuntimeError("Installed report scaffolding or offline export failed")
         run("--project", str(project), "suite", "launch", "DEMO")
         run("--project", str(project), "sync")
