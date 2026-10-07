@@ -1,5 +1,12 @@
 # Release notes
 
+## 0.1.0a10
+
+- Tab changes update the URL, so refreshing after leaving Reports keeps the selected tab.
+- Explicit tab URLs preserve deep links and browser Back/Forward; malformed trailing commas are normalized.
+
+Verified: 333 tests, 7 local/exported browser navigation checks, package builds, and isolated installation.
+
 ## 0.1.0a9
 
 - Inline editing of marked report text and static captions with Save/Cancel.

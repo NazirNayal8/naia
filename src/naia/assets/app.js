@@ -192,8 +192,17 @@ async function renderArchive() {
 }
 const VIEW_PANELS={queue:'queueView',suites:'suitesView',arch:'archView',reports:'reportsView',archive:'archiveView'};
 const VIEW_SUBTITLES={queue:'Project queue · one decision at a time',suites:'Live experiment map · summaries and results',arch:'Network architectures · tensor shapes and observed calls',reports:'Analysis reports · evidence and findings',archive:'Removed tasks'};
-async function setView(view,updateURL=false) {
-  if(!VIEW_PANELS[view])view='queue';currentView=view;
+function normalizedView(view) {
+  const name=String(view||'queue').replace(/,+$/,'');
+  return Object.prototype.hasOwnProperty.call(VIEW_PANELS,name)?name:'queue';
+}
+function updateViewURL(view,push) {
+  const url=new URL(location.href);if(url.pathname==='/archive')url.pathname='/';
+  url.searchParams.set('view',view);
+  if(url.href!==location.href)history[push?'pushState':'replaceState']({view},'',url);
+}
+async function setView(view,updateURL=true) {
+  view=normalizedView(view);updateViewURL(view,updateURL);currentView=view;
   for(const [key,id] of Object.entries(VIEW_PANELS))$(id).hidden=key!==view;
   for(const tab of document.querySelectorAll('[data-view]')){const on=tab.dataset.view===view;tab.classList.toggle('active',on);tab.setAttribute('aria-selected',String(on));tab.tabIndex=on?0:-1;}
   document.querySelector('nav').hidden=view==='archive';document.body.classList.toggle('archive-mode',view==='archive');
@@ -201,7 +210,6 @@ async function setView(view,updateURL=false) {
   $('pageTitle').textContent=view==='archive'?'Removed tasks':'NAIA';$('pageSubtitle').textContent=VIEW_SUBTITLES[view];
   $('archiveLink').textContent=view==='archive'?'← Active queue':'Archive';$('archiveLink').href=view==='archive'?'/':'/?view=archive';
   if(view!=='archive')storeValue(VIEW_KEY,view);
-  if(updateURL){const url=new URL(location.href);if(url.pathname==='/archive')url.pathname='/';if(view==='queue')url.searchParams.delete('view');else url.searchParams.set('view',view);history.pushState({view},'',url);}
   if(state&&view==='suites'&&!graphReady)renderSuiteGraph(true);
   if(state&&view==='archive')await renderArchive();
   if(view==='reports'&&window.NAIAReports)await window.NAIAReports.show($('reportsView'));
@@ -452,9 +460,9 @@ $('suiteStatusSave').addEventListener('click',guarded(()=>setSuiteStatus($('suit
 $('suiteSealButton').addEventListener('click',guarded(()=>setSuiteStatus('sealed')));
 $('sync').addEventListener('click',guarded(async()=>{await request('/api/sync',{});await refresh({reloadCard:true});message('Validated results refreshed.');}));
 window.addEventListener('resize',()=>{if(graphReady)applyGraphView();});
-window.addEventListener('popstate',()=>setView(location.pathname==='/archive'?'archive':new URLSearchParams(location.search).get('view') || 'queue').catch(error=>message(error.message,true)));
-const initialView=location.pathname==='/archive'?'archive':new URLSearchParams(location.search).get('view') || stored(VIEW_KEY,'queue');
-setView(initialView).then(refresh).then(()=>{
+window.addEventListener('popstate',()=>setView(location.pathname==='/archive'?'archive':new URLSearchParams(location.search).get('view') || 'queue',false).catch(error=>message(error.message,true)));
+const initialView=normalizedView(location.pathname==='/archive'?'archive':new URLSearchParams(location.search).get('view') || stored(VIEW_KEY,'queue'));
+setView(initialView,false).then(refresh).then(()=>{
   const query=new URLSearchParams(location.search),suite=query.get('suite'),task=query.get('task');
   if(initialView==='suites'&&suiteById.has(suite)){selectSuite(suite);$('suiteDialog').showModal();}
   if(initialView==='queue'&&task){const card=[...$('deck').querySelectorAll('[data-id]')].find(node=>node.dataset.id===task);if(card){unpacked=true;applyDeck();const details=card.querySelector('.details');if(details)details.classList.add('open');const toggle=card.querySelector('[data-detail]');if(toggle){toggle.textContent='Hide details';toggle.setAttribute('aria-expanded','true');}card.scrollIntoView({block:'center'});}}

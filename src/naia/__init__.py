@@ -1,3 +1,3 @@
 """Generic research workflow. Importing this package has no project side effects."""
 
-__version__ = "0.1.0a9"
+__version__ = "0.1.0a10"

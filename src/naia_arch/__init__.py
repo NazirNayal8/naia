@@ -2,7 +2,7 @@
 from .schema import validate_graph
 from ._semantics import annotate_graph
 
-__version__ = "0.1.0a9"
+__version__ = "0.1.0a10"
 
 
 def capture(*args, **kwargs):

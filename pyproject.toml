@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "naia"
-version = "0.1.0a9"
+version = "0.1.0a10"
 description = "NAIA: assistant-first tasks, experiment suites, and architecture inspection"
 requires-python = ">=3.10"
 dependencies = []
