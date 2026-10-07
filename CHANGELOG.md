@@ -1,5 +1,16 @@
 # Release notes
 
+## 0.1.0a8
+
+- Shared SVG report kit: bars, lines, scatter plots, tables, controls, and keyboard tooltips.
+- Explicit metrics and dimensions; missing values and duplicate rows are not silently aggregated.
+- `naia report new` creates a draft; `export` produces one offline HTML file without overwriting work.
+- Responsive figures, accessible numbers and tooltips, and report-writing instructions for assistants.
+
+Existing projects refresh managed instructions with `naia instructions install` after upgrading.
+
+Verified: 289 tests, local/exported browser checks, offline export, package builds, and isolated installation.
+
 ## 0.1.0a7
 
 - Reports tab with text search, tag filters, and automatic folder discovery.

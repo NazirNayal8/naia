@@ -1,6 +1,7 @@
 """Check installed distributions outside the source tree; no GPU or scheduler."""
 from importlib import metadata
 from importlib.resources import files
+from html import unescape
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,9 @@ def main():
                 for name in ("naia", "lab", "naia-arch", "lab-arch")}
     installed = metadata.distribution("naia")
     print(f"naia {installed.version}")
+    if any(package.__version__ != installed.version
+           for package in (naia, naia_arch, research_workbench, workbench_arch)):
+        raise RuntimeError("Package versions do not match the installed distribution")
     if installed.metadata.get("License-Expression") != "MIT":
         raise RuntimeError("Missing MIT metadata")
     if installed.requires:
@@ -30,7 +34,7 @@ def main():
     if len(licenses) != 1 or "Copyright (c) 2026 Nazir Nayal" not in installed.locate_file(licenses[0]).read_text():
         raise RuntimeError("Missing packaged MIT license")
     for package, script in (("naia", "app.js"), ("naia_arch", "viewer.js")):
-        extra = ('blocks.js',) if package == 'naia_arch' else ('reports.js', 'reports.css', 'reports_viewer.js')
+        extra = ('blocks.js',) if package == 'naia_arch' else ('reports.js', 'reports.css', 'reports_viewer.js', 'report_kit.js')
         for asset in ("index.html", "style.css", script, *extra):
             if not files(package).joinpath("assets", asset).is_file():
                 raise RuntimeError(f"Missing installed asset: {package}/{asset}")
@@ -102,6 +106,14 @@ def main():
         found = json.loads(run("--project", str(project), "report", "list", "--query", "search", "--tag", "smoke").stdout)
         if not checked["valid"] or [item["id"] for item in found["reports"]] != ["DEMO_REPORT"]:
             raise RuntimeError("Installed report discovery, validation, or search failed")
+        run("--project", str(project), "report", "new", "KIT_DRAFT", "--title", "Kit draft")
+        draft = json.loads(run("--project", str(project), "report", "check", "KIT_DRAFT").stdout)
+        exported = json.loads(run("--project", str(project), "report", "export", "KIT_DRAFT",
+                                 "--out", "exports/kit-draft.html").stdout)
+        standalone = Path(exported["path"]).read_text()
+        if (not draft["valid"] or '/reports/_kit/' in standalone
+                or 'window.NAIAReport' not in standalone or "connect-src 'none'" not in unescape(standalone)):
+            raise RuntimeError("Installed report scaffolding or offline export failed")
         run("--project", str(project), "suite", "launch", "DEMO")
         run("--project", str(project), "sync")
         registry = json.loads((project / ".lab/state/registry.json").read_text())

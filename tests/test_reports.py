@@ -497,6 +497,50 @@ class ReportsHTTPTest(unittest.TestCase):
                 self.assertNotIn(b"window.unsafe", content)
 
 
+    def test_shared_kit_route_is_exact_and_csp_is_report_scoped(self):
+        status, content, headers = self.request("/reports/_kit/naia_report_kit.js")
+        self.assertEqual(status, 200, content)
+        self.assertIn(b"NAIAReport", content)
+        self.assertIn("javascript", headers.get("Content-Type"))
+        self.assertIsNone(headers.get("Access-Control-Allow-Origin"))
+        status, _, headers = self.request("/reports/SAFE/index.html")
+        self.assertEqual(status, 200)
+        csp = headers.get("Content-Security-Policy", "")
+        self.assertIn(self.base + "/reports/SAFE/", csp)
+        self.assertIn(self.base + "/reports/_kit/naia_report_kit.js", csp)
+        self.assertIn(self.base + "/reports/_kit/naia_report_kit.css", csp)
+        self.assertNotIn("script-src 'self'", csp)
+        self.assertNotIn(self.base + "/api/", csp)
+        for path in ("/reports/_kit/other.js", "/reports/_kit/../api/state",
+                     "/reports/_kit/%2e%2e/api/state",
+                     "/reports/_kit/%252e%252e/api/state",
+                     "/reports/_kit/%6eaia_report_kit.js",
+                     "/reports/_kit/naia_report_kit.js/extra",
+                     "/reports/_kit/naia_report_kit.js%3fapi/state"):
+            with self.subTest(path=path):
+                self.assertIn(self.request(path)[0], (400, 403, 404))
+
+    def test_authoring_cli_new_check_export_and_no_overwrite(self):
+        result = self.cli("report", "new", "NEW_DRAFT", "--title", "Empty scientific draft")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        draft = self.directory / "NEW_DRAFT"
+        self.assertTrue(draft.is_dir())
+        self.assertIn(b"/reports/_kit/naia_report_kit.js", (draft / "index.html").read_bytes())
+        result = self.cli("report", "check", "NEW_DRAFT")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        output = self.root / "draft.html"
+        result = self.cli("report", "export", "NEW_DRAFT", "--out", str(output))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        document = output.read_bytes()
+        self.assertIn(b"NAIAReport", document)
+        self.assertNotIn(b'<script src="/reports/_kit/', document)
+        self.assertNotIn(b"<svg", document)
+        result = self.cli("report", "export", "NEW_DRAFT", "--out", str(output))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(output.read_bytes(), document)
+        result = self.cli("report", "new", "NEW_DRAFT", "--title", "Overwrite")
+        self.assertNotEqual(result.returncode, 0)
+
     def test_check_cli_exit_status_reflects_invalid_reports(self):
         result = self.cli("report", "check")
         self.assertEqual(result.returncode, 0, result.stderr)

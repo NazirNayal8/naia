@@ -44,6 +44,8 @@ DEFAULT_LIMITS = {
 }
 
 _ID = re.compile(r"^[A-Z0-9_]+$")
+KIT_JS_ROUTE = "/reports/_kit/naia_report_kit.js"
+KIT_CSS_ROUTE = "/reports/_kit/naia_report_kit.css"
 _DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 _MIMES = {
     ".html": "text/html; charset=utf-8",
@@ -115,6 +117,7 @@ def report_csp(origin: str | None = None, report_route: str | None = None) -> st
     never an unchecked Host header. Network APIs and frame navigation stay closed.
     """
     source = "'self'"
+    kit_script = kit_style = ""
     if origin is not None or report_route is not None:
         if not isinstance(origin, str) or not isinstance(report_route, str):
             raise ReportError("CSP requires both a trusted origin and report route")
@@ -134,10 +137,12 @@ def report_csp(origin: str | None = None, report_route: str | None = None) -> st
                 or any(p in {".", ".."} for p in report_route.split("/"))):
             raise ReportError("Invalid report CSP route")
         source = origin.rstrip("/") + report_route
+        kit_script = " " + origin.rstrip("/") + KIT_JS_ROUTE
+        kit_style = " " + origin.rstrip("/") + KIT_CSS_ROUTE
     return (
         "sandbox allow-scripts allow-popups; default-src 'none'; "
-        f"script-src 'unsafe-inline' {source}; "
-        f"style-src 'unsafe-inline' {source}; "
+        f"script-src 'unsafe-inline' {source}{kit_script}; "
+        f"style-src 'unsafe-inline' {source}{kit_style}; "
         f"img-src data: {source}; font-src data: {source}; "
         f"media-src data: {source}; connect-src 'none'; frame-src 'none'; "
         "object-src 'none'; base-uri 'none'; form-action 'none'; worker-src 'none'"
@@ -508,6 +513,10 @@ class Reports:
             return
         if any(c in raw for c in "\x00\r\n\\"):
             raise ReportError("Invalid report resource URL")
+        if ((raw == KIT_JS_ROUTE and kind == "resource")
+                or (raw == KIT_CSS_ROUTE and kind == "stylesheet")):
+            # Trusted packaged assets only; this is not a general shared-file route.
+            return
         try:
             parsed = urlsplit(raw)
         except ValueError as exc:

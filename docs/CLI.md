@@ -171,14 +171,22 @@ then queues a task. Your assistant performs the [analysis](FEATURES.md#analysis-
 naia report list --query "action dynamics" --tag planning
 naia report check
 naia report check DATA_AUDIT
+naia report new DATA_AUDIT --title "Data audit"
+naia report export DATA_AUDIT --out exports/data-audit.html
 naia --reports-root docs/reports ui
 ```
 
 `list` searches static report text; repeat `--tag` for AND filters. `check` exits 1
-on invalid reports. Both emit JSON. Reports are discovered automatically from the
+on invalid reports. All report commands emit JSON. Reports are discovered automatically from the
 [configured folder](FEATURES.md#reports); there is no `add` command.
 Use `report:DATA_AUDIT` with task `--material` to link its viewer. Existing projects
 refresh assistant guidance with `naia instructions install` after upgrading.
+
+`new` creates an empty kit-based draft, not analysis results. `export` inlines local
+assets and the chart kit into one HTML file that opens offline. The output must be
+inside the project, outside the live reports folder; it never overwrites an existing
+file. Missing or network-dependent assets fail explicitly.
+Creation and export currently require POSIX descriptor-relative filesystem support.
 
 ## NAIA Lens
 

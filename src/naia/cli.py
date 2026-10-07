@@ -11,6 +11,7 @@ from .storage import NAIAError, read_json
 from .suites import Suites, import_analysis
 from .tasks import Tasks
 from .reports import ReportError
+from .report_authoring import AuthoringError, new_report, export_report
 
 
 def parser():
@@ -32,6 +33,13 @@ def parser():
     listing.add_argument("--tag", action="append", default=[])
     check = reports.add_parser("check")
     check.add_argument("id", nargs="?")
+    new = reports.add_parser("new", help="Create a report draft without overwriting existing work")
+    new.add_argument("id")
+    new.add_argument("--title", required=True)
+    new.add_argument("--summary", default="Report draft.")
+    export = reports.add_parser("export", help="Bundle a report into one offline HTML file")
+    export.add_argument("id")
+    export.add_argument("--out", required=True)
     arch = sub.add_parser("arch", aliases=["lens"], help="Capture, view, and link model architectures")
     from naia_arch.cli import add_graph_commands
     arch_commands = add_graph_commands(arch)
@@ -144,7 +152,18 @@ def dispatch(args):
         reports = project.reports(args.reports_root)
         if args.report_action == "list":
             return reports.search(args.query, args.tag)
-        return reports.check(args.id)
+        if args.report_action == "check":
+            return reports.check(args.id)
+        if args.report_action == "new":
+            return new_report(reports, args.id, args.title, summary=args.summary)
+        from importlib.resources import files
+        from .reports import KIT_JS_ROUTE, KIT_CSS_ROUTE
+        assets = {}
+        for route, filename in ((KIT_JS_ROUTE, "report_kit.js"), (KIT_CSS_ROUTE, "report_kit.css")):
+            asset = files("naia").joinpath("assets", filename)
+            if asset.is_file():
+                assets[route] = asset.read_bytes()
+        return export_report(reports, args.id, args.out, kit_assets=assets)
     if args.command in ("arch", "lens"):
         from .architectures import Architectures
         registry = Architectures(project)
@@ -244,7 +263,7 @@ def main(argv=None):
         if args.command == "report" and args.report_action == "check" and not result["valid"]:
             return 1
         return 1 if isinstance(result, dict) and result.get("ok") is False else 0
-    except (NAIAError, ReportError, OSError, json.JSONDecodeError) as exc:
+    except (NAIAError, ReportError, AuthoringError, OSError, json.JSONDecodeError) as exc:
         print(json.dumps({"error": str(exc)}), file=sys.stderr)
         return 2
 

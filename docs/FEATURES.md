@@ -168,9 +168,17 @@ Read initial state from the URL hash; opaque sandbox origins cannot use localSto
 Only the viewer's own frame is accepted. State updates the bookmark and “Open alone”
 link; it does not grant access to project APIs.
 
-Reports must work offline with inline or report-relative assets. Remote resources
+Reports use inline, report-relative, or packaged chart-kit assets. Remote resources
 and API access are blocked, including when opened alone. No PyTorch is required.
-The shared chart kit, report scaffolding, and export commands are not part of this phase.
+Use `naia report new ID --title "..."` for an empty draft and `report export ID --out
+exports/report.html` for a single offline file. Neither overwrites existing work.
+
+The shared SVG kit provides bars, lines, scatter plots, and tables with controls,
+facets, legends, keyboard tooltips, and readable numbers. Load
+`/reports/_kit/naia_report_kit.js` and call `NAIAReport.init` with named tidy tables,
+then `R.figure` with an explicit numeric `value` field. Controls filter rows;
+unmapped varying fields and duplicate coordinates produce visible errors instead
+of silent averaging. Missing values stay missing. Reports can still use bespoke code.
 
 Override the directory with `naia --reports-root PATH ui`, or store
 `reports_directory` in the confirmed `reporting` context value. It must stay inside

@@ -13,7 +13,7 @@ from .materials import MaterialRenderer, MATHJAX_ROOT
 from .storage import NAIAError, read_json
 from .suites import Suites, UI_STATUSES
 from .tasks import Tasks
-from .reports import ReportError, report_csp
+from .reports import ReportError, report_csp, KIT_JS_ROUTE, KIT_CSS_ROUTE
 from .report_view import viewer_html
 
 
@@ -98,6 +98,14 @@ def handler(project, token, *, reports_root=None):
             if path.startswith("/api/") and self.headers.get("Origin") not in (
                     None, f"http://127.0.0.1:{self.server.server_port}", f"http://localhost:{self.server.server_port}"):
                 return self.send(403, {"error": "Local API origin required"})
+            kit_assets = {KIT_JS_ROUTE: ("report_kit.js", "text/javascript; charset=utf-8"),
+                          KIT_CSS_ROUTE: ("report_kit.css", "text/css; charset=utf-8")}
+            if path in kit_assets:
+                filename, mime = kit_assets[path]
+                asset = files("naia").joinpath("assets", filename)
+                if not asset.is_file():
+                    return self.send(404, {"error": "Report kit asset is unavailable"})
+                return self.send(200, asset.read_bytes(), mime)
             if path in ("/api/reports", "/report") or path.startswith("/reports/"):
                 try:
                     query = parse_qs(request_url.query, keep_blank_values=True)

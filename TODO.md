@@ -19,7 +19,7 @@
 - [x] Edit task text and suite workflow status.
 - [x] Render suite Markdown instead of showing its source.
 - [x] Search and view interactive HTML reports.
-- [ ] Shared report charts, report scaffolding, and standalone export.
+- [x] Shared report charts, report scaffolding, and standalone export.
 - [ ] Include scheduler reconciliation in refresh, not just saved results.
 
 See [features and limits](docs/FEATURES.md) for current behavior.
