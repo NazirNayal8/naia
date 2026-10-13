@@ -5,7 +5,7 @@ It keeps tasks, experiment suites, results, reports, and model diagrams together
 repository. You work through your existing assistant; a local browser UI lets
 you review the work and manage the task queue.
 
-Python 3.10+ · [MIT](https://github.com/NazirNayal8/naia/blob/main/LICENSE) · Alpha `0.1.0a11`
+Python 3.10+ · [MIT](https://github.com/NazirNayal8/naia/blob/main/LICENSE) · Alpha `0.1.0a12`
 
 ## Install
 
@@ -15,7 +15,7 @@ Install into a Python or Conda environment. Git must be available; no clone is n
 pip install "git+https://github.com/NazirNayal8/naia.git"
 ```
 
-Append `@v0.1.0a11` to the URL to install that release. NAIA is not yet published
+Append `@v0.1.0a12` to the URL to install that release. NAIA is not yet published
 on PyPI, so `pip install naia` is not the command for this project.
 
 NAIA's task/suite management and graph viewing need no GPU, PyTorch, or AI API key.
@@ -55,8 +55,8 @@ or "Retry the failed evaluations". The instructions cover concise records,
 review followups, launch validation, automatic evaluations, and duplicate checks.
 NAIA uses your existing trainer, evaluator, and config system.
 
-Ask the assistant to run `naia ui` to open the dashboard at
-[localhost:8767](http://127.0.0.1:8767). Edit tasks, reorder the queue, change suite
+Ask the assistant to run `naia ui` and open the URL it prints. Each project gets
+an available random port and a `NAIA - <project folder>` tab title. Edit tasks, reorder the queue, change suite
 status, and review cards or interactive reports there. Suite design and launches stay with your assistant
 or the CLI.
 

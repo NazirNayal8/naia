@@ -264,7 +264,9 @@ class MaterialRenderer:
         if not resolved.is_relative_to(self.project.root):
             return "#"
         relative = resolved.relative_to(self.project.root).as_posix()
-        report_target = self.project.reports().match_path(relative)
+        # Classify links without opening an optional report library. Actual report
+        # reads still enforce exclusions and path checks in the report routes.
+        report_target = self.project.reports(validate_on_init=False).match_path(relative)
         if report_target is not None and report_target[1] == "index.html":
             return "/report?id=" + urllib.parse.quote(report_target[0])
         route = "/asset" if resolved.suffix.lower() in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf") else "/material"

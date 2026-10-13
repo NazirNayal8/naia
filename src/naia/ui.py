@@ -1,7 +1,8 @@
 """Loopback-only browser UI. No CDN, public binding, or arbitrary command endpoint."""
 from __future__ import annotations
 
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from html import escape
+from http.server import BaseHTTPRequestHandler
 from importlib.resources import files
 import json
 import mimetypes
@@ -16,9 +17,11 @@ from .tasks import Tasks
 from .reports import ReportError, report_csp, KIT_JS_ROUTE, KIT_CSS_ROUTE, EDITOR_JS_ROUTE
 from .report_view import viewer_html
 from .report_editing import ReportEditor, EditConflict
+from .browser_server import bind_loopback, project_title
 
 
 def handler(project, token, *, reports_root=None):
+    page_title = escape(project_title(project.root))
     reports = project.reports(reports_root, validate_on_init=False)
     editor = ReportEditor(reports)
     def state():
@@ -208,7 +211,11 @@ def handler(project, token, *, reports_root=None):
             if path not in assets:
                 return self.send(404, {"error": "Not found"})
             filename, mime = assets[path]
-            return self.send(200, files("naia").joinpath("assets", filename).read_bytes(), mime)
+            content = files("naia").joinpath("assets", filename).read_bytes()
+            if filename == "index.html":
+                content = content.replace(b"<title>NAIA - Project</title>",
+                                          f"<title>{page_title}</title>".encode("utf-8"))
+            return self.send(200, content, mime)
 
         def do_POST(self):
             origin = self.headers.get("Origin")
@@ -256,8 +263,8 @@ def handler(project, token, *, reports_root=None):
     return Handler
 
 
-def serve(project, port=8767, *, reports_root=None):
-    server = ThreadingHTTPServer(("127.0.0.1", port), handler(project, secrets.token_urlsafe(32), reports_root=reports_root))
+def serve(project, port=None, *, reports_root=None):
+    server = bind_loopback(handler(project, secrets.token_urlsafe(32), reports_root=reports_root), port)
     print(f"NAIA: http://127.0.0.1:{server.server_port}", flush=True)
     try:
         server.serve_forever()

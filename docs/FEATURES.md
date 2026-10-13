@@ -147,8 +147,9 @@ evaluation can have separate resources. Supported fields are
 
 ## Browser dashboard
 
-The dashboard opens at `http://127.0.0.1:8767`, with a selectable port, loopback binding,
-and a session token. It uses the local research UI's dark theme and four views:
+The dashboard prints its URL, chooses an available random port, and labels the tab
+`NAIA - <project folder>`. `--port` selects an exact port; binding stays loopback-only
+with a session token. It uses the local research UI's dark theme and four views:
 
 - Task queue: create/edit tasks, pack/unpack cards, drag to reorder, start/pause/resume,
   complete with a note, and remove into a recoverable archive.
@@ -242,7 +243,7 @@ onboarding. It validates a graph inside the project and stores a read-only path 
 and checksum. Keep that file unchanged; revisions need a new graph and ID.
 
 Standalone `naia arch capture`, `annotate`, `validate`, and `view` work without project setup.
-The standalone viewer uses `http://127.0.0.1:8768`; the dashboard uses port `8767`.
+The standalone viewer uses `http://127.0.0.1:8768`; the dashboard chooses an available port.
 The browser reads saved graphs and does not run factories or capture training runs.
 Drag nodes and arrow bends, pan/zoom, switch hierarchy levels, search, inspect module
 metadata and shapes, save layouts, export SVG, and play observed calls. Compare two or

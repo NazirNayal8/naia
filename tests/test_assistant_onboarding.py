@@ -146,6 +146,27 @@ class AssistantOnboardingTest(unittest.TestCase):
         self.assertEqual(self.snapshot(), before)
         self.assert_selection(self.project, "both")
 
+    def test_suite_naming_guidance_reaches_both_assistants_without_renaming_records(self):
+        self.project.initialize(scan=False)
+        registry = self.project.directory / "state/registry.json"
+        legacy_suite = {"id": "EXISTING_LONG_SUITE_ID", "title": "User's existing suite name"}
+        write_json(registry, {"schema_version": 1, "suites": [legacy_suite]})
+        before = registry.read_bytes()
+        self.project.configure_assistant("both")
+        for filename in FILES["both"]:
+            with self.subTest(filename=filename):
+                text = (self.project.root / filename).read_text()
+                self.assertIn("concise descriptive name summarizing its idea", text)
+                self.assertIn("2–4-letter acronym derived from that name", text)
+                self.assertIn("optional numbers for versions", text)
+                self.assertIn("Keep the descriptive name and acronym distinct", text)
+                self.assertIn("Unless the user supplies a name, choose both yourself", text)
+                self.assertIn("respect user-provided names", text)
+                self.assertIn("without renaming existing suites or rejecting legacy registry IDs", text)
+        self.assertEqual(registry.read_bytes(), before)
+        self.project.install_instructions(["AGENTS.md", "CLAUDE.md"])
+        self.assertEqual(registry.read_bytes(), before)
+
     def test_configure_assistant_preserves_user_answers_and_policies(self):
         self.project.initialize()
         self.project.answer("project", {"goal": "Keep existing research context"}, confirmed=True)

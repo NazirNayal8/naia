@@ -13,6 +13,7 @@ from .suites import Suites, import_analysis
 from .tasks import Tasks
 from .reports import ReportError
 from .report_authoring import AuthoringError, new_report, export_report
+from .browser_server import port_number
 
 
 def parser():
@@ -128,7 +129,8 @@ def parser():
     add.add_argument("file")
     add.add_argument("--approved-by", required=True)
     ui = sub.add_parser("ui")
-    ui.add_argument("--port", type=int, default=8767)
+    ui.add_argument("--port", type=port_number,
+                    help="Use this exact port (0: OS-selected); default: random available port")
     worker = sub.add_parser("_worker", help=argparse.SUPPRESS)
     worker.add_argument("record")
     worker.add_argument("--profile")

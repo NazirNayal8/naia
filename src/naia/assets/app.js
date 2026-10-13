@@ -2,6 +2,7 @@
 let state = null, items = [], ordered = [], focusId = '', editingId = null, draggedId = null;
 let completion = null, selectedArchitecture = null, selectedSuiteId = null, currentView = 'queue';
 let suiteById = new Map(), graphNodes = new Map(), graphEdges = [];
+let suiteCardRequest = 0, suiteCardLoadingUrl = null;
 let graphReady = false, graphScale = 1, graphOffset = {x:0,y:0}, graphBounds = {x:0,y:0,width:800,height:500};
 const $ = id => document.getElementById(id);
 const element = (tag, text, cls) => {
@@ -361,6 +362,34 @@ function renderSuiteGraph(preserveView=false) {
   for(const [id,{group}] of graphNodes)group.classList.toggle('selected',id===selectedSuiteId);
   if(keepView)applyGraphView();else resetGraph();
 }
+function cancelSuiteCardLoad() { suiteCardRequest++;suiteCardLoadingUrl=null; }
+async function loadSuiteCard(url,title,reloadCard=false) {
+  const frame=$('suiteCardFrame'),notice=$('suiteNoCard');
+  frame.title=title+' suite card';
+  if(!reloadCard&&(suiteCardLoadingUrl===url||(!frame.hidden&&frame.getAttribute('src')===url)))return;
+  const requestId=++suiteCardRequest,suiteId=selectedSuiteId;
+  suiteCardLoadingUrl=url;frame.hidden=true;frame.removeAttribute('src');
+  notice.textContent='Loading suite card…';notice.hidden=false;
+  const current=()=>requestId===suiteCardRequest&&suiteId===selectedSuiteId&&$('suiteDialog').open;
+  try {
+    const target=new URL(url,location.href);
+    if(target.origin!==location.origin)throw Error('Suite cards must use the same origin as NAIA.');
+    const response=await fetch(target.href,{cache:'no-store',credentials:'same-origin',redirect:'error'});
+    if(!response.ok) {
+      let reason='Suite card could not be loaded (HTTP '+response.status+').';
+      if((response.headers.get('Content-Type') || '').includes('application/json')) {
+        try { const result=await response.json();if(typeof result.error==='string'&&result.error)reason=result.error; } catch (_) {}
+      }
+      throw Error(reason);
+    }
+    if(!(response.headers.get('Content-Type') || '').includes('text/html'))throw Error('Suite card did not return an HTML page.');
+    if(!current())return;
+    frame.src=url;frame.hidden=false;notice.hidden=true;
+  } catch(error) {
+    if(!current())return;
+    notice.textContent=error.message || 'Suite card could not be loaded.';notice.hidden=false;
+  } finally { if(requestId===suiteCardRequest)suiteCardLoadingUrl=null; }
+}
 function selectSuite(id,{reloadCard=false}={}) {
   const node=suiteById.get(id);if(!node)return;selectedSuiteId=id;
   for(const [key,{group}] of graphNodes)group.classList.toggle('selected',key===id);
@@ -375,10 +404,13 @@ function selectSuite(id,{reloadCard=false}={}) {
   architectureLinks($('suiteModalSummary'),'suite',node.id);
   const url=node.card_url || '/suite-card?id='+encodeURIComponent(node.id);
   const hasCard=node.card_available!==false&&Boolean(node.card_url || node.card || state.cards?.[node.id]!==undefined);
-  $('suiteNoCard').textContent=node.card_error || 'This suite has no readable card.';
-  $('suiteOpenTab').href=url;$('suiteOpenTab').hidden=!hasCard;$('suiteCardFrame').hidden=!hasCard;$('suiteNoCard').hidden=hasCard;
-  if(hasCard){$('suiteCardFrame').title=node.title+' suite card';if(reloadCard||$('suiteCardFrame').getAttribute('src')!==url)$('suiteCardFrame').src=url;}
+  $('suiteOpenTab').href=url;$('suiteOpenTab').hidden=!hasCard;
   if(!$('suiteDialog').open)$('suiteDialog').showModal();
+  if(hasCard)loadSuiteCard(url,node.title,reloadCard);
+  else {
+    cancelSuiteCardLoad();$('suiteCardFrame').hidden=true;$('suiteCardFrame').removeAttribute('src');
+    $('suiteNoCard').textContent=node.card_error || 'This suite has no readable card.';$('suiteNoCard').hidden=false;
+  }
 }
 async function setSuiteStatus(status) {
   const node=suiteById.get(selectedSuiteId);if(!node || status===suiteStatus(node))return;
@@ -453,6 +485,7 @@ $('completionForm').addEventListener('submit',guarded(completeTask));
 for(const node of document.querySelectorAll('[data-close]'))node.addEventListener('click',()=>$(node.dataset.close).close());
 for(const dialog of document.querySelectorAll('dialog'))dialog.addEventListener('click',event=>{if(event.target===dialog&&((event.clientX<dialog.getBoundingClientRect().left)||(event.clientX>dialog.getBoundingClientRect().right)||(event.clientY<dialog.getBoundingClientRect().top)||(event.clientY>dialog.getBoundingClientRect().bottom)))dialog.close();});
 $('taskDialog').addEventListener('close',()=>editingId=null);$('completionDialog').addEventListener('close',()=>completion=null);
+$('suiteDialog').addEventListener('close',()=>{cancelSuiteCardLoad();$('suiteCardFrame').removeAttribute('src');$('suiteCardFrame').hidden=true;});
 $('sealedToggle').addEventListener('click',()=>{hideSealed=!hideSealed;storeValue(SEALED_KEY,hideSealed?'1':'0');renderSuiteGraph();});
 $('graphZoomIn').addEventListener('click',()=>zoomGraph(1.2));$('graphZoomOut').addEventListener('click',()=>zoomGraph(.8));$('graphFit').addEventListener('click',resetGraph);
 $('graphReset').addEventListener('click',()=>{try{localStorage.removeItem(POS_KEY);}catch(_){}renderSuiteGraph();});

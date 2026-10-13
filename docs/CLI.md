@@ -22,7 +22,9 @@ naia context questions
 naia ui
 ```
 
-Open `http://127.0.0.1:8767`; use `naia ui --port 9000` to change the port.
+Open the URL printed by `naia ui`; the default chooses an available random port.
+Use `naia ui --port 9000` for a fixed port, or `--port 0` for an OS-assigned port.
+For remote use, forward the printed port with SSH using the same local and remote port.
 Reports are optional: a missing folder shows an empty library without creating it.
 Excluded or inaccessible folders show a Reports-unavailable message without blocking the dashboard.
 Commands find `.lab/project.json` in the current directory or its ancestors.

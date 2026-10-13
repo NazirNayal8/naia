@@ -1,5 +1,15 @@
 # Release notes
 
+## 0.1.0a12
+
+- Suite cards with links work when Reports is excluded; loading errors appear as readable text.
+- Browser tabs show `NAIA - <project folder>`. Default ports are randomized and skip collisions; explicit ports stay exact.
+- Assistant rules name new suites with name-derived 2–4-letter acronyms and optional version numbers; existing IDs stay unchanged.
+
+Refresh project instructions with `naia instructions install` after upgrading, then restart the dashboard.
+
+Verified: 421 package tests, 115 local tests, five Chromium browser checks, package builds, and isolated installation.
+
 ## 0.1.0a11
 
 - Clear first-run guidance when `naia ui` is used before initialization.

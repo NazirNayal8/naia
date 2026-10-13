@@ -165,11 +165,18 @@ class OptionalReportsHTTPTest(unittest.TestCase):
             return response.status, response.read()
 
     def assert_other_workflows_usable(self):
+        card = self.root / ".lab" / "suites" / "CT" / "card.md"
+        card.parent.mkdir(parents=True)
+        card.write_text("# Card test\n[Evidence](../../../evidence.txt)\n"
+                        "[Report](../../../reports/SAFE/index.html)\n")
+        before_card = card.read_bytes()
         for path in ("/", "/archive", "/api/state", "/api/archive", "/architecture",
-                     "/api/architecture?id=MODEL", "/material?path=evidence.txt"):
+                     "/api/architecture?id=MODEL", "/material?path=evidence.txt",
+                     "/suite-card?id=CT", "/material?path=.lab/suites/CT/card.md"):
             with self.subTest(path=path):
                 status, body = self.request(path)
                 self.assertEqual(status, 200, body)
+        self.assertEqual(card.read_bytes(), before_card)
         before_context = self.project.context_path.read_bytes()
         status, body = self.request("/api/action", {"action": "add", "id": "REVIEW", "title": "Review",
             "goal": "Inspect evidence", "decision": "Approve"})
