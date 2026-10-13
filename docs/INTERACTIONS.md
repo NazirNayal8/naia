@@ -8,7 +8,20 @@ to repeat the workflow rules.
 
 ## Setup
 
-> Set up NAIA here. I use Codex and Claude.
+For the first project on a machine, give the assistant a concrete starting point:
+
+> NAIA is installed as a command-line tool. Run `naia policy` and `naia --help`, then set up NAIA here for Codex and Claude.
+
+Alternatively, run `naia init --assistant both` yourself, start a new assistant
+session, and ask it to read the installed instructions and complete onboarding.
+
+If you installed the optional skill with `naia assistant install --assistant both`,
+you can simply say:
+
+> Set up NAIA here.
+
+If automatic matching does not pick it up, use `$naia-setup` in Codex or
+`/naia-setup` in Claude Code. Start a new session if the skill is not yet visible.
 
 The assistant reads existing instructions and inspection exclusions first, then
 checks permitted README files, scripts, and configuration. NAIA's static scan

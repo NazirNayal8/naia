@@ -19,7 +19,7 @@ from .report_editing import ReportEditor, EditConflict
 
 
 def handler(project, token, *, reports_root=None):
-    reports = project.reports(reports_root)
+    reports = project.reports(reports_root, validate_on_init=False)
     editor = ReportEditor(reports)
     def state():
         registry_path = project.directory / "state/registry.json"

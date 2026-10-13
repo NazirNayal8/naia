@@ -1,5 +1,17 @@
 # Release notes
 
+## 0.1.0a11
+
+- Clear first-run guidance when `naia ui` is used before initialization.
+- Prompt-first and terminal-first setup options, plus an optional Codex/Claude onboarding skill.
+- Dashboard opens without reports; excluded or inaccessible report folders affect only Reports.
+- Doctor warns about unconfirmed backends instead of blocking a confirmed Slurm-only setup; execution guards remain unchanged.
+
+Register the optional setup skill with `naia assistant install --assistant both`.
+Rerun this command after upgrades to refresh NAIA-managed skill copies.
+
+Verified: 388 tests, 102 local report tests, 12 local/exported browser checks, package builds, and isolated installation.
+
 ## 0.1.0a10
 
 - Tab changes update the URL, so refreshing after leaving Reports keeps the selected tab.

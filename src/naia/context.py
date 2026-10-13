@@ -119,7 +119,7 @@ class Project:
             raise NAIAError("Unsupported project context version")
         return data
 
-    def reports(self, directory=None):
+    def reports(self, directory=None, *, validate_on_init=True):
         """Read-only report library; neither scans sources nor initializes a project."""
         from .reports import Reports
         data = self.load()
@@ -129,7 +129,7 @@ class Project:
         exclusions = self._exclusions(data)
         return Reports(self.root, directory or reporting.get("reports_directory", ".lab/reports"),
                        excluded=lambda relative: is_excluded(relative, exclusions),
-                       limits=reporting.get("report_limits"))
+                       limits=reporting.get("report_limits"), validate_on_init=validate_on_init)
 
     def initialize(self, assistant=None, *, excluded_paths=(), scan=True):
         if assistant is not None and (not isinstance(assistant, str) or assistant not in ASSISTANTS):
@@ -453,14 +453,22 @@ class Project:
 
     def doctor(self):
         data = self.load()
-        checks = [{"name": "onboarding", "ok": data["onboarding"]["status"] == "confirmed"}]
+        checks = [{"name": "onboarding", "ok": data["onboarding"]["status"] == "confirmed"},
+                  {"name": "backend:any-confirmed",
+                   "ok": any(p.get("confirmed") for p in data["backends"].values())}]
+        warnings = []
         for key, profile in data["backends"].items():
-            checks.append({"name": f"backend:{key}:confirmed", "ok": bool(profile.get("confirmed"))})
+            if not profile.get("confirmed"):
+                warnings.append(f"Backend {key!r} is unconfirmed; readiness checks were skipped. "
+                                "Execution on this backend remains disabled.")
+                continue
+            checks.append({"name": f"backend:{key}:confirmed", "ok": True})
             if profile["kind"] == "slurm":
                 for executable in ("sbatch", "squeue", "sacct"):
                     checks.append({"name": f"backend:{key}:{executable}", "ok": shutil.which(executable) is not None})
                 checks.append({"name": f"backend:{key}:management_python", "ok": Path(profile["management_python"]).is_file()})
-        return {"project": str(self.root), "ok": all(c["ok"] for c in checks), "checks": checks}
+        return {"project": str(self.root), "ok": all(c["ok"] for c in checks),
+                "checks": checks, "warnings": warnings}
 
     def install_instructions(self, filenames):
         with locked(self.directory / "state/locks/context.lock"):

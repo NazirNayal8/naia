@@ -2,6 +2,33 @@
 
 [README](../README.md) · [Interaction examples](INTERACTIONS.md) · [CLI reference](CLI.md)
 
+## Setup skill
+
+Pip installs NAIA's code, not assistant awareness. For first use, ask your assistant
+to read `naia policy` and `naia --help`, or run `naia init --assistant both` and
+start a fresh assistant session. The [README](../README.md#use-in-your-project)
+shows both paths.
+
+Optionally, `naia assistant install --assistant both` installs a small setup skill
+once per machine. Use `codex` or `claude` to select only one integration:
+
+| Assistant | Default skill file |
+| --- | --- |
+| Codex | `~/.agents/skills/naia-setup/SKILL.md` |
+| Claude Code | `~/.claude/skills/naia-setup/SKILL.md` |
+
+Claude's location respects `CLAUDE_CONFIG_DIR`. Ask “Set up NAIA here”, or explicitly
+invoke `$naia-setup` in Codex and `/naia-setup` in Claude Code. A new session may be
+needed to discover newly installed skills. See the official
+[Codex](https://learn.chatgpt.com/docs/build-skills) and
+[Claude Code](https://code.claude.com/docs/en/skills) skill guides.
+
+The installer needs no initialized project. It writes only the setup skill, not
+global instructions or project context, and never runs automatically during pip
+installation. Rerun it after upgrades to refresh NAIA-managed skill copies; a
+custom skill is never overwritten. Project-specific policy and confirmed context
+remain in each project's instruction files and `.lab/project.json`.
+
 ## Project setup
 
 `naia init --assistant <choice>` selects Codex, Claude, or both. Setup adds managed rules

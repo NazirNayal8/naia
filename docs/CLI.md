@@ -10,7 +10,9 @@ The CLI is for direct control, automation, and recovery.
 
 Follow the [installation steps](../README.md#install) with Python 3.10+.
 From a source checkout, use `python -m pip install .`. This version is not on PyPI yet.
-Read existing project instructions and inspection exclusions before initialization.
+For first use, either ask your assistant to run `naia policy` and `naia --help`
+and set up the project, or initialize it yourself. Read existing project
+instructions and inspection exclusions before initialization.
 
 ```bash
 cd /path/to/your/project
@@ -21,6 +23,8 @@ naia ui
 ```
 
 Open `http://127.0.0.1:8767`; use `naia ui --port 9000` to change the port.
+Reports are optional: a missing folder shows an empty library without creating it.
+Excluded or inaccessible folders show a Reports-unavailable message without blocking the dashboard.
 Commands find `.lab/project.json` in the current directory or its ancestors.
 Select a project with `naia --project /path/to/project <command>`.
 
@@ -28,6 +32,18 @@ Choose `codex`, `claude`, or `both` to install managed rules in root `AGENTS.md`
 Setup preserves existing text. Without a recorded choice, `naia init` returns a question for your assistant.
 For an already initialized NAIA project, use `naia instructions install --assistant both`.
 See [assistant setup and defaults](FEATURES.md#project-setup).
+
+For optional machine-wide setup awareness, run:
+
+```bash
+naia assistant install --assistant both
+```
+
+Choose `codex`, `claude`, or `both`. This command works without project setup and
+installs only the `naia-setup` skill. It does not scan or initialize a project,
+or change global `AGENTS.md`/`CLAUDE.md`. Installation through pip never runs it
+automatically. See [skill locations and activation](FEATURES.md#setup-skill).
+Rerun it after upgrades to refresh NAIA-managed copies; a custom skill is never overwritten.
 
 First `naia init` scans permitted README files, scripts, and configuration for static
 evidence. Add repeatable `--exclude PATH` options with relative paths or globs,
@@ -108,6 +124,12 @@ remains available for direct answers; add `--confirmed` only after user approval
 `local.json` can contain `{"kind":"local"}`. Final confirmation needs a named user, seven confirmed
 nonempty answers, and at least one confirmed backend. Launches, including dry runs, require this setup
 and a confirmed selected backend. Changing an answer or backend resets setup to pending; confirm again.
+
+`naia doctor` requires confirmed onboarding and at least one confirmed backend.
+Unconfirmed backends, including the initial `local` placeholder, produce warnings
+but do not block readiness. They remain unavailable for execution. Dependencies
+of confirmed backends are still checked. For Slurm-only launches, pass the
+confirmed Slurm backend ID with `--backend`.
 
 ## Tasks
 

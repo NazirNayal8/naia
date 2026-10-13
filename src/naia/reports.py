@@ -246,7 +246,8 @@ class Reports:
 
     def __init__(self, root: str | Path, directory: str | Path, *,
                  excluded: Callable[[str], bool] | None = None,
-                 limits: dict[str, int] | None = None) -> None:
+                 limits: dict[str, int] | None = None,
+                 validate_on_init: bool = True) -> None:
         self.root = Path(root).resolve()
         if not self.root.is_dir():
             raise ReportError("Project root is not a directory")
@@ -273,7 +274,10 @@ class Reports:
         self._cache: OrderedDict[str, _Record] = OrderedDict()
         self._cache_size = 0
         self._lock = RLock()
-        self._safe_path(self.directory, missing=True)
+        # The UI can defer report access until this optional tab is opened.
+        # Every discovery/read/write path still performs its own access checks.
+        if validate_on_init:
+            self._safe_path(self.directory, missing=True)
 
     def _safe_path(self, path: Path, *, within: Path | None = None, missing: bool = False) -> None:
         """Reject forbidden components and symlinks before following anything."""
@@ -751,7 +755,8 @@ class Reports:
         try:
             ids, warnings = self._discover()
         except ReportError as exc:
-            return {"reports": [], "tags": [], "warnings": [str(exc)]}
+            return {"reports": [], "tags": [], "warnings": [str(exc)],
+                    "available": False, "message": f"Reports are unavailable: {exc}"}
         results = []
         available: set[str] = set()
         for report_id in ids:
@@ -782,4 +787,4 @@ class Reports:
         results.sort(key=lambda row: (-row[0], -date.fromisoformat(row[1]["date"]).toordinal() if row[1]["date"] else 0, row[1]["id"]))
         return {"reports": [meta for _, meta in results],
                 "tags": sorted(available, key=lambda value: (value.casefold(), value)),
-                "warnings": list(dict.fromkeys(warnings))}
+                "warnings": list(dict.fromkeys(warnings)), "available": True}

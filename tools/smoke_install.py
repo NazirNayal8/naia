@@ -1,13 +1,17 @@
 """Check installed distributions outside the source tree; no GPU or scheduler."""
+from contextlib import redirect_stdout
 from importlib import metadata
 from importlib.resources import files
 from html import unescape
+import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from unittest.mock import patch
 
 import naia
 import naia_arch
@@ -38,6 +42,12 @@ def main():
         for asset in ("index.html", "style.css", script, *extra):
             if not files(package).joinpath("assets", asset).is_file():
                 raise RuntimeError(f"Missing installed asset: {package}/{asset}")
+    packaged_skill = files("naia").joinpath("skills", "naia-setup", "SKILL.md")
+    if not packaged_skill.is_file():
+        raise RuntimeError("NAIA setup skill is missing from the installed distribution")
+    skill_text = packaged_skill.read_text(encoding="utf-8")
+    if not skill_text.startswith("---\nname: naia-setup\n") or "installation.json" not in skill_text:
+        raise RuntimeError("Installed setup skill is missing its activation or environment fallback")
     if "torch" in sys.modules:
         raise RuntimeError("Package import must not load PyTorch")
     if workbench_arch.capture is not naia_arch.capture:
@@ -57,6 +67,31 @@ def main():
         for command in commands.values():
             subprocess.run([str(command), "--help"], cwd=root, env=environment,
                            check=True, capture_output=True, text=True)
+        help_text = run("assistant", "install", "--help").stdout
+        if not all(choice in help_text for choice in ("--assistant", "codex", "claude", "both")):
+            raise RuntimeError("Installed assistant skill command is unavailable")
+        # Exercise the installed CLI before initialization without touching real
+        # user configuration, HOME or CODEX_HOME, or initializing this project.
+        from naia.cli import main as installed_cli
+        skill_home = root / "skill-home"
+        uninitialized = root / "skill-project"
+        output = io.StringIO()
+        with patch.object(Path, "home", return_value=skill_home), patch.dict(
+                os.environ, {"CLAUDE_CONFIG_DIR": ""}), redirect_stdout(output):
+            status = installed_cli(["--project", str(uninitialized), "assistant", "install",
+                                    "--assistant", "both"])
+        result = json.loads(output.getvalue())
+        if status != 0 or result["skill"] != "naia-setup" or len(result["files"]) != 2:
+            raise RuntimeError("Installed setup skill could not be registered before project setup")
+        for integration in (".agents", ".claude"):
+            directory = skill_home / integration / "skills" / "naia-setup"
+            record = json.loads((directory / "installation.json").read_text())
+            if ((directory / "SKILL.md").read_text(encoding="utf-8") != skill_text
+                    or record["sha256"] != hashlib.sha256(skill_text.encode("utf-8")).hexdigest()
+                    or record["python"] != str(Path(sys.executable).absolute())):
+                raise RuntimeError("Installed setup skill content or Python fallback is incorrect")
+        if uninitialized.exists() or (root / ".lab").exists():
+            raise RuntimeError("Installing assistant awareness unexpectedly created a project")
         graph = root / "graph.json"
         graph.write_text(json.dumps({"schema_version": 1,
                                      "nodes": [{"id": "model", "parent": None, "kind": "module"}],
@@ -156,7 +191,7 @@ def main():
                 or architectures[0]["task"] != "REVIEW-DEMO"
                 or not architectures[0]["available"]):
             raise RuntimeError("Project architecture did not link to its suite and review task")
-    print("Unified installation, MIT licensing, assets, command/import aliases, reports, architecture annotation/viewing, onboarding, auto-evaluation, and reuse: OK")
+    print("Unified installation, MIT licensing, assets, assistant skills, command/import aliases, reports, architecture annotation/viewing, onboarding, auto-evaluation, and reuse: OK")
 
 
 if __name__ == "__main__":

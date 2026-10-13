@@ -5,7 +5,7 @@ It keeps tasks, experiment suites, results, reports, and model diagrams together
 repository. You work through your existing assistant; a local browser UI lets
 you review the work and manage the task queue.
 
-Python 3.10+ · [MIT](https://github.com/NazirNayal8/naia/blob/main/LICENSE) · Alpha `0.1.0a10`
+Python 3.10+ · [MIT](https://github.com/NazirNayal8/naia/blob/main/LICENSE) · Alpha `0.1.0a11`
 
 ## Install
 
@@ -15,7 +15,7 @@ Install into a Python or Conda environment. Git must be available; no clone is n
 pip install "git+https://github.com/NazirNayal8/naia.git"
 ```
 
-Append `@v0.1.0a10` to the URL to install that release. NAIA is not yet published
+Append `@v0.1.0a11` to the URL to install that release. NAIA is not yet published
 on PyPI, so `pip install naia` is not the command for this project.
 
 NAIA's task/suite management and graph viewing need no GPU, PyTorch, or AI API key.
@@ -26,9 +26,21 @@ NAIA does not install or replace Torch/CUDA. You can also use a
 
 ## Use in your project
 
-Open your project with Codex or Claude and ask:
+Installing NAIA does not automatically teach your assistant about it. Choose either setup path:
 
-> Set up NAIA here. I use Codex and Claude.
+1. **Ask your assistant first.** Open your project with Codex or Claude and say:
+
+   > NAIA is installed as a command-line tool. Run `naia policy` and `naia --help`, then set up NAIA here for Codex and Claude.
+
+2. **Start from the terminal.** In your project, run:
+
+   ```bash
+   naia init --assistant both
+   ```
+
+   Start a new assistant session and ask it to read the installed project instructions and complete NAIA onboarding.
+
+Use `codex` or `claude` instead of `both` if you use only one assistant.
 
 The assistant first reads your project instructions and inspection exclusions.
 It adds instructions to `AGENTS.md`, `CLAUDE.md`, or both without replacing existing
@@ -48,11 +60,27 @@ Ask the assistant to run `naia ui` to open the dashboard at
 status, and review cards or interactive reports there. Suite design and launches stay with your assistant
 or the CLI.
 
-For manual setup, run `naia init --assistant both` in your project, then ask the
-assistant to complete onboarding. First initialization collects a bounded static
+No reports folder is needed to open the dashboard. An excluded or inaccessible
+report folder shows a message in Reports; other tabs remain usable.
+
+First initialization collects a bounded static
 scan of README files, scripts, and configuration; your assistant interprets it.
 Use repeatable `--exclude PATH` options for inspection exclusions, or `--no-scan`
-to skip discovery. Use `codex` or `claude` if you use only one.
+to skip discovery.
+
+### Optional: install the setup skill
+
+Run once per machine to make “Set up NAIA here” a discoverable assistant skill:
+
+```bash
+naia assistant install --assistant both
+```
+
+This installs a setup skill for Codex and Claude Code; it does not initialize a
+project or change global instructions. Start a new session if the skill is not
+visible. You can also invoke `$naia-setup` in Codex or `/naia-setup` in Claude Code.
+After upgrading NAIA, rerun the command to refresh its managed skill copies.
+Project rules still belong in each project's `AGENTS.md` and `CLAUDE.md`.
 
 ## What's included
 

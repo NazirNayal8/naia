@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import sys
 
 from .context import ASSISTANTS, POLICY_TEXT, ROLE_PRESETS, Project
@@ -23,6 +24,10 @@ def parser():
     init.add_argument("--assistant", choices=ASSISTANTS, help="Install NAIA rules for Codex, Claude, or both")
     init.add_argument("--exclude", action="append", default=[], help="Do not inspect this relative path or glob (repeatable)")
     init.add_argument("--no-scan", action="store_true", help="Skip initial repository discovery")
+    assistants = sub.add_parser("assistant", help="Install optional assistant awareness").add_subparsers(
+        dest="assistant_action", required=True)
+    skill = assistants.add_parser("install", help="Install the NAIA setup skill for this user")
+    skill.add_argument("--assistant", choices=ASSISTANTS, required=True)
     sub.add_parser("doctor")
     sub.add_parser("policy")
     sub.add_parser("sync")
@@ -131,6 +136,9 @@ def parser():
 
 
 def dispatch(args):
+    if args.command == "assistant":
+        from .assistant_skills import install_setup_skill
+        return install_setup_skill(args.assistant)
     project = Project.discover(args.project)
     if args.command == "policy":
         print(POLICY_TEXT, end="")
@@ -254,6 +262,19 @@ def dispatch(args):
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
+        if args.command == "ui":
+            project = Project.discover(args.project)
+            try:
+                project.context_path.lstat()
+            except FileNotFoundError:
+                setup = "naia init" if not args.project else (
+                    f"naia --project {shlex.quote(str(project.root))} init")
+                print("NAIA isn't set up in this project yet.\n"
+                      f"Project: {project.root}\n\n"
+                      f"To get started, run:\n  {setup}\n\n"
+                      "Then ask your AI assistant to finish setup, "
+                      "and run `naia ui` again.", file=sys.stderr)
+                return 2
         if args.command in ("arch", "lens") and args.action in ("capture", "annotate", "view", "validate"):
             from naia_arch.cli import dispatch as graph_command
             return graph_command(args)

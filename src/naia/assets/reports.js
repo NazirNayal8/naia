@@ -110,6 +110,25 @@
     instance.warnings.append(list);
   }
 
+  function renderUnavailable(instance, payload) {
+    const message = typeof payload.message === 'string' && payload.message.trim()
+      ? payload.message.replace(/^Reports are unavailable:\s*/i, '')
+      : strings(payload.warnings)[0] || 'The configured report folder cannot be accessed.';
+    instance.input.disabled = true;
+    instance.clear.disabled = true;
+    instance.tagGroup.hidden = true;
+    renderWarnings(instance, []);
+    setStatus(instance, 'Reports unavailable');
+    const empty = node('div', undefined, 'nr-empty');
+    empty.append(node('p', message));
+    empty.append(node('p', 'Other tabs are still available. Choose a report directory allowed by your project settings, then restart the interface.'));
+    const retry = node('button', 'Check again', 'nr-control');
+    retry.type = 'button';
+    retry.addEventListener('click', () => { void refreshInstance(instance); });
+    empty.append(retry);
+    instance.cards.replaceChildren(empty);
+  }
+
   async function refreshInstance(instance) {
     clearTimeout(instance.timer);
     instance.controller?.abort();
@@ -126,6 +145,12 @@
       if (sequence !== instance.sequence) return;
       if (!response.ok) throw Error(typeof payload.error === 'string' ? payload.error : 'Could not load reports.');
       if (!Array.isArray(payload.reports)) throw Error('The report index returned an invalid response.');
+      if (payload.available === false) {
+        renderUnavailable(instance, payload);
+        return;
+      }
+      instance.input.disabled = false;
+      instance.clear.disabled = false;
       instance.availableTags = strings(payload.tags);
       renderTags(instance);
       renderWarnings(instance, payload.warnings);
