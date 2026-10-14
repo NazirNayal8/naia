@@ -43,6 +43,11 @@ function taskItems(tasks) {
   return (tasks?.order || Object.keys(byId)).map(id=>byId[id]).filter(Boolean);
 }
 function isActive(task) { return ['active','in_progress'].includes(task?.status); }
+function activeFirst(tasks) { return [...tasks.filter(isActive),...tasks.filter(task=>!isActive(task))]; }
+function sameTaskGroup(firstId,secondId) {
+  const first=ordered.find(task=>task.id===firstId),second=ordered.find(task=>task.id===secondId);
+  return Boolean(first&&second&&isActive(first)===isActive(second));
+}
 function priorityColor(score) { const ratio=(Math.max(1,Math.min(100,Number(score)||1))-1)/99; return 'hsl('+(215-ratio*210)+' 72% 52%)'; }
 function oneSentence(value) { const text=String(value ?? '').trim(), match=text.match(/^.*?[.!?](?:\s|$)/); return match?match[0].trim():text; }
 function materialLink(material) {
@@ -66,11 +71,12 @@ function architectureLinks(host, field, id) {
   host.append(links);
 }
 function taskCard(task,index) {
-  const card=element('article',undefined,'task-card '+(task.id===focusId?'focused ':'')+task.status);
+  const active=isActive(task),status=task.status || 'ready';
+  const card=element('article',undefined,'task-card '+(task.id===focusId?'focused ':'')+(active?'is-active ':'')+status);
   card.dataset.id=task.id; card.draggable=unpacked;
   const score=task.priority ?? (ordered.length<=1?100:100-index*99/(ordered.length-1));
   card.style.setProperty('--priority-color',priorityColor(score));
-  card.innerHTML='<div class="top"><span class="priority-mark"><span class="drag-handle" aria-hidden="true">⠿</span><span class="priority-dot" title="Relative priority" aria-label="Relative priority"></span></span><span class="status">'+esc(task.status)+'</span></div><h2>'+esc(task.title)+'</h2><p class="summary">'+esc(oneSentence(task.goal || task.decision || task.title))+'</p>';
+  card.innerHTML='<div class="top"><span class="priority-mark"><span class="drag-handle" aria-hidden="true">⠿</span><span class="priority-dot" title="Relative priority" aria-label="Relative priority"></span></span><span class="status'+(active?' active-badge':'')+'">'+esc(active?'Active':status)+'</span></div><h2>'+esc(task.title)+'</h2><p class="summary">'+esc(oneSentence(task.goal || task.decision || task.title))+'</p>';
   const details=element('div',undefined,'details'); details.id='task-details-'+index;
   const toggle=button('See full',()=>{
     const open=details.classList.toggle('open'); toggle.textContent=open?'Hide details':'See full'; toggle.setAttribute('aria-expanded',String(open));
@@ -79,7 +85,7 @@ function taskCard(task,index) {
   details.innerHTML='<div class="label">ID · TYPE · OWNER</div><p>'+esc(task.id)+' · '+esc(task.type || 'task')+' · '+esc(task.owner || 'unassigned')+'</p><div class="label">Full goal</div><p>'+esc(task.goal)+'</p><div class="label">Decision / deliverable</div><p>'+esc(task.decision)+'</p><div class="label">Review material</div><ul class="materials">'+((task.materials || []).map(value=>'<li>'+materialLink(value)+'</li>').join('') || '<li>None</li>')+'</ul>'+dependencies(task);
   architectureLinks(details,'task',task.id);
   const actions=element('div');
-  if(task.status==='ready')actions.append(button('Start',()=>act('start',{id:task.id}),''));
+  if(status==='ready')actions.append(button('Start',()=>act('start',{id:task.id}),''));
   if(isActive(task))actions.append(button('Complete',()=>openCompletion(task.id),''),
     button('Pause',()=>act('pause',{id:task.id}),'secondary'));
   if(task.status==='paused')actions.append(button('Resume',()=>act('resume',{id:task.id}),''));
@@ -87,16 +93,17 @@ function taskCard(task,index) {
   details.append(actions); card.append(toggle,details); return card;
 }
 function applyDeck() {
-  const mode=unpacked?'unpacked':'packed';
-  $('deck').className='deck '+mode; $('deckWrap').className='deck-wrap '+mode+(ordered.length?'':' empty-deck');
+  const mode=unpacked?'unpacked':'packed',hasActive=ordered.some(isActive);
+  $('deck').className='deck '+mode+(hasActive?' has-active':''); $('deckWrap').className='deck-wrap '+mode+(ordered.length?'':' empty-deck');
   $('deckToggle').textContent=unpacked?'Pack cards':'Unpack all';
-  $('reorderHint').textContent=unpacked?'Drag cards to set their priority':'Unpack cards to reorder them';
+  $('reorderHint').textContent=unpacked?(hasActive?'Drag within active or queued tasks to reorder':'Drag cards to set their priority'):'Unpack cards to reorder them';
   for(const card of $('deck').querySelectorAll('.task-card'))card.draggable=unpacked;
 }
 function renderQueue() {
   const openIds=new Set([...$('deck').querySelectorAll('.task-card')].filter(card=>card.querySelector('.details.open')).map(card=>card.dataset.id));
-  items=taskItems(state?.tasks); ordered=items.filter(task=>!['done','cancelled','removed'].includes(task.status));
-  focusId=state?.focus_id || items.find(isActive)?.id || items.find(task=>task.status==='ready')?.id || '';
+  items=taskItems(state?.tasks); ordered=activeFirst(items.filter(task=>!['done','cancelled','removed'].includes(task.status)));
+  const focused=ordered.find(task=>task.id===state?.focus_id),firstActive=ordered.find(isActive);
+  focusId=(firstActive?(isActive(focused)?focused:firstActive):focused || ordered.find(task=>(task.status || 'ready')==='ready'))?.id || '';
   $('deck').replaceChildren();
   for(const [index,task] of ordered.entries()) {
     const card=taskCard(task,index);
@@ -104,7 +111,7 @@ function renderQueue() {
     $('deck').append(card);
   }
   if(!ordered.length)$('deck').append(element('div','No actionable tasks remain.','empty'));
-  $('count').textContent=ordered.length+' open'; $('pauseCurrentAction').replaceChildren();
+  $('count').textContent=ordered.length+' open · '+ordered.filter(isActive).length+' active'; $('pauseCurrentAction').replaceChildren();
   const current=items.find(task=>task.id===focusId);
   if(isActive(current))$('pauseCurrentAction').append(button('Pause current',()=>act('pause',{id:current.id})));
   $('resolveNext').disabled=!focusId; applyDeck();
@@ -159,16 +166,20 @@ $('deck').addEventListener('dragstart',event=>{
   draggedId=card.dataset.id;card.classList.add('dragging');event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('text/plain',draggedId);
 });
 $('deck').addEventListener('dragover',event=>{
-  if(!unpacked || !draggedId)return;event.preventDefault();
+  if(!unpacked || !draggedId)return;
   const dragged=[...$('deck').children].find(card=>card.dataset.id===draggedId),target=event.target.closest('.task-card');
   $('deck').querySelectorAll('.drag-over').forEach(card=>card.classList.remove('drag-over'));
-  if(!dragged || !target || target===dragged)return;
+  if(!dragged || !target || !sameTaskGroup(draggedId,target.dataset.id))return;
+  event.preventDefault();
+  if(target===dragged)return;
   const before=event.clientY<target.getBoundingClientRect().top+target.offsetHeight/2,reference=before?target:target.nextSibling;
   if(reference===dragged || (before&&dragged.nextSibling===target))return;
   animateDeckMove(()=>$('deck').insertBefore(dragged,reference));target.classList.add('drag-over');
 });
 $('deck').addEventListener('drop',guarded(async event=>{
   if(!unpacked || !draggedId)return;event.preventDefault();
+  const target=event.target.closest('.task-card');
+  if(target&&!sameTaskGroup(draggedId,target.dataset.id)){renderQueue();return;}
   const ids=[...$('deck').querySelectorAll('.task-card')].map(card=>card.dataset.id);
   try { await act('reorder',{ordered_ids:ids});$('reorderHint').textContent='Order saved · drag again to adjust'; }
   catch(error){renderQueue();throw error;}

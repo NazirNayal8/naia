@@ -40,7 +40,7 @@ def handler(project, token, *, reports_root=None):
         suites = projected
         tasks = Tasks(project)
         focus = tasks.next()
-        return {"tasks": tasks.load(), "suites": suites, "cards": cards,
+        return {"tasks": tasks.display(), "suites": suites, "cards": cards,
                 "architectures": Architectures(project).list(), "context": project.context_view(),
                 "suite_statuses": UI_STATUSES, "focus_id": focus["id"] if focus else "", "token": token}
 

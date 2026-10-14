@@ -267,17 +267,18 @@ class WorkflowTest(unittest.TestCase):
         self.assertFalse(registry["suites"][0]["results_ready"])
         self.assertFalse(Tasks(self.project).load()["items"])
 
-    def test_task_order_single_active_and_soft_dependencies(self):
+    def test_task_order_multiple_active_and_soft_dependencies(self):
         self.project.initialize()
         tasks = Tasks(self.project)
         tasks.add("A", "A", "Goal", "Decision")
         tasks.add("B", "B", "Goal", "Decision", dependencies=["A"], top=True)
         self.assertEqual(tasks.next()["id"], "B")
         tasks.action("B", "start")
-        with self.assertRaises(NAIAError):
-            tasks.action("A", "start")
-        tasks.action("B", "pause")
         tasks.action("A", "start")
+        self.assertEqual(tasks.display()["order"], ["B", "A"])
+        self.assertEqual(tasks.next()["id"], "B")
+        tasks.action("B", "pause")
+        self.assertEqual(tasks.next()["id"], "A")
         tasks.action("A", "done", note="Decision recorded")
         tasks.action("B", "resume")
         self.assertEqual(tasks.next()["id"], "B")

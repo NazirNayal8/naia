@@ -97,8 +97,9 @@ or assume Hydra. `naia init` itself does not create project launchers.
 
 Tasks have a title, goal, decision, owner, evidence, related-task IDs, and notes.
 You can create, assign, move to top, start, pause, resume, complete, or cancel them.
-States are `ready`, `active`, `paused`, `done`, and `cancelled`. Only one task can be active;
-it comes next, otherwise the first ready task does. Resume makes a paused task active.
+States are `ready`, `active`, `paused`, `done`, and `cancelled`. Multiple tasks can be active;
+they are highlighted and pinned above the rest, including in the packed view. Pausing restores
+their saved priority. Resolve next completes the first active task, or the first ready task.
 Related-task IDs do not enforce completion dependencies. The browser supports editing,
 drag reordering, and recoverable removal; removed IDs remain reserved. It hides closed
 tasks from the queue and shows removed tasks in the archive. Reopening is not implemented.

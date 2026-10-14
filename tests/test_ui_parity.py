@@ -131,11 +131,14 @@ class UIParityTest(unittest.TestCase):
         self.assertEqual(state["focus_id"], "B")
         self.assertEqual(state["tasks"]["items"]["C"]["status"], "done")
 
-    def test_pause_resume_and_legacy_actions_keep_one_active_task(self):
+    def test_pause_resume_and_legacy_actions_preserve_multiple_active_tasks(self):
         self.add_task("A")
         self.add_task("B")
         self.assertEqual(self.api("/api/task", {"action": "start", "id": "A"})[0], 200)
-        self.assertEqual(self.api("/api/action", {"action": "start", "id": "B"})[0], 400)
+        self.assertEqual(self.api("/api/action", {"action": "start", "id": "B"})[0], 200)
+        state = self.state()
+        self.assertEqual(state["tasks"]["items"]["A"]["status"], "active")
+        self.assertEqual(state["tasks"]["items"]["B"]["status"], "active")
         self.assertEqual(self.api("/api/action", {"action": "pause", "id": "A", "note": "Waiting"})[0], 200)
         self.assertEqual(self.api("/api/action", {"action": "resume", "id": "A"})[0], 200)
         state = self.state()
@@ -144,6 +147,24 @@ class UIParityTest(unittest.TestCase):
         self.assertEqual(state["tasks"]["items"]["A"]["notes"][-1]["text"], "Waiting")
         self.assertEqual(self.api("/api/action", {"action": "resolve", "note": "Reviewed"})[0], 200)
         self.assertEqual(self.state()["tasks"]["items"]["A"]["status"], "done")
+        self.assertEqual(self.state()["tasks"]["items"]["B"]["status"], "active")
+        self.assertEqual(self.state()["focus_id"], "B")
+
+    def test_state_promotes_active_tasks_without_rewriting_manual_order(self):
+        for task_id in ("A", "B", "C", "D"):
+            self.add_task(task_id)
+        initial = json.loads(self.queue_snapshot())
+        for task_id in ("D", "B"):
+            self.assertEqual(self.api("/api/action", {"action": "start", "id": task_id})[0], 200)
+        state = self.state()
+        self.assertEqual(state["tasks"]["order"], ["B", "D", "A", "C"])
+        self.assertEqual(state["focus_id"], "B")
+        self.assertEqual(json.loads(self.queue_snapshot())["order"], initial["order"])
+        self.assertEqual(self.api("/api/action", {"action": "pause", "id": "B"})[0], 200)
+        self.assertEqual(self.state()["tasks"]["order"], ["D", "A", "B", "C"])
+        self.assertEqual(self.state()["focus_id"], "D")
+        self.assertEqual(self.api("/api/action", {"action": "done", "id": "D"})[0], 200)
+        self.assertEqual(self.state()["focus_id"], "A")
 
     def test_invalid_task_payloads_do_not_mutate_queue(self):
         self.add_task()

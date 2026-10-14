@@ -222,7 +222,7 @@ def dispatch(args):
     if args.command == "task":
         tasks = Tasks(project)
         if args.task_action == "list":
-            return tasks.load()
+            return tasks.display()
         if args.task_action == "next":
             return tasks.next()
         if args.task_action == "add":

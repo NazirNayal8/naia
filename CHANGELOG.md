@@ -1,5 +1,16 @@
 # Release notes
 
+## 0.1.0a14
+
+- Multiple tasks can be active together, with teal cards and an Active badge.
+- Active tasks appear first and all stay visible in the packed view.
+- Pausing restores saved priority; dragging reorders within active or queued groups.
+- CLI and browser task ordering agree without rewriting saved positions on activation.
+
+Restart the dashboard after upgrading.
+
+Verified: 464 package tests, 160 local tests, and local/exported Chromium desktop/mobile checks.
+
 ## 0.1.0a13
 
 - Suite-card rules require concise goals, controls, experiment changes/formulations, and copyable launch commands.

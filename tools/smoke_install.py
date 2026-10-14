@@ -180,6 +180,26 @@ def main():
         queue = json.loads((project / ".lab/tasks.json").read_text())
         if set(queue["items"]) != {"REVIEW-DEMO"}:
             raise RuntimeError("Expected one automatic review task")
+        for task_id in ("ACTIVE-A", "ACTIVE-B"):
+            run("--project", str(project), "task", "add", task_id,
+                "--title", task_id, "--goal", "Verify concurrent review tasks",
+                "--decision", "Confirm independent activation")
+        manual_order = json.loads((project / ".lab/tasks.json").read_text())["order"]
+        for task_id in ("ACTIVE-B", "ACTIVE-A"):
+            run("--project", str(project), "task", "start", task_id)
+        shown = json.loads(run("--project", str(project), "task", "list").stdout)
+        if (shown["order"][:2] != ["ACTIVE-A", "ACTIVE-B"]
+                or any(shown["items"][key]["status"] != "active" for key in ("ACTIVE-A", "ACTIVE-B"))
+                or json.loads((project / ".lab/tasks.json").read_text())["order"] != manual_order):
+            raise RuntimeError("Concurrent task activation changed saved priorities")
+        run("--project", str(project), "task", "pause", "ACTIVE-A")
+        shown = json.loads(run("--project", str(project), "task", "list").stdout)
+        if shown["order"] != ["ACTIVE-B", "REVIEW-DEMO", "ACTIVE-A"]:
+            raise RuntimeError("Pausing did not restore the task's saved position")
+        run("--project", str(project), "task", "resume", "ACTIVE-A")
+        run("--project", str(project), "task", "done", "ACTIVE-A")
+        if json.loads(run("--project", str(project), "task", "next").stdout)["id"] != "ACTIVE-B":
+            raise RuntimeError("Completing one active task affected another")
         saved_graph = project / "architecture.json"
         saved_graph.write_text(graph.read_text())
         run("--project", str(project), "arch", "add", "DEMO-MODEL",

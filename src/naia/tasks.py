@@ -13,6 +13,14 @@ class Tasks:
     def load(self):
         return read_json(self.path)
 
+    def display(self):
+        """Project active tasks first without changing their saved queue positions."""
+        data = copy.deepcopy(self.load())
+        order = data["order"]
+        data["order"] = ([key for key in order if data["items"][key]["status"] == "active"]
+                         + [key for key in order if data["items"][key]["status"] != "active"])
+        return data
+
     def archive(self):
         return read_json(self.archive_path) if self.archive_path.exists() else {"schema_version": 1, "items": []}
 
@@ -86,12 +94,19 @@ class Tasks:
             if (not isinstance(ordered_ids, list) or any(not isinstance(key, str) for key in ordered_ids)
                     or len(set(ordered_ids)) != len(ordered_ids) or set(ordered_ids) != set(open_ids)):
                 raise NAIAError("Reordering requires every open task exactly once")
-            data["order"] = ordered_ids + [key for key in data["order"] if key not in open_ids]
+            # The displayed queue is active-first. Reorder within each group but
+            # retain their saved slots so merely activating a task never rewrites
+            # its underlying priority (including after dragging other tasks).
+            active = iter(key for key in ordered_ids if data["items"][key]["status"] == "active")
+            inactive = iter(key for key in ordered_ids if data["items"][key]["status"] != "active")
+            reordered = [next(active if data["items"][key]["status"] == "active" else inactive)
+                         for key in open_ids]
+            data["order"] = reordered + [key for key in data["order"] if key not in open_ids]
             write_json(self.path, data)
         return data
 
     def next(self):
-        data = self.load()
+        data = self.display()
         for status in ("active", "ready"):
             for task_id in data["order"]:
                 if data["items"][task_id]["status"] == status:
@@ -147,8 +162,6 @@ class Tasks:
                 allowed, status = transitions[action]
                 if item["status"] not in allowed:
                     raise NAIAError(f"Cannot {action} a {item['status']} task")
-                if status == "active" and any(v["status"] == "active" for v in data["items"].values()):
-                    raise NAIAError("Pause or finish the active task first")
                 item["status"] = status
             if note:
                 item["notes"].append({"at": now(), "text": note})
