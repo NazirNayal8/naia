@@ -1,4 +1,4 @@
-"""Stable assistant-neutral commands. Outputs are JSON except the policy contract."""
+"""Assistant commands, with compact launch summaries and opt-in launch JSON."""
 from __future__ import annotations
 
 import argparse
@@ -124,6 +124,7 @@ def parser():
             suite.add_argument("--cell")
             suite.add_argument("--profile")
             suite.add_argument("--no-auto-eval", action="store_true")
+            suite.add_argument("--json", action="store_true", help="Print the full machine-readable launch result")
     analysis = sub.add_parser("analysis").add_subparsers(dest="analysis_action", required=True)
     add = analysis.add_parser("add")
     add.add_argument("file")
@@ -241,7 +242,8 @@ def dispatch(args):
             return data
         return launch(project, args.id, backend=args.backend, dry_run=args.dry_run,
                       auto_eval=not args.no_auto_eval, retry=args.retry, cell_id=args.cell,
-                      evaluate_only=args.suite_action == "evaluate", evaluation_id=args.profile)
+                      evaluate_only=args.suite_action == "evaluate", evaluation_id=args.profile,
+                      on_outcome=getattr(args, "_launch_progress", None))
     if args.command == "analysis":
         return import_analysis(project, read_json(args.file), args.approved_by)
     if args.command == "sync":
@@ -261,8 +263,112 @@ def dispatch(args):
     raise NAIAError("Unknown command")
 
 
+def _one_line(value):
+    """Keep one experiment per line, including messages from external tools."""
+    return " ".join(str(value).split())
+
+
+def _stage_label(entry):
+    status = entry.get("status", "unknown")
+    action = entry.get("action")
+    if action == "not-requested":
+        return "not requested"
+    label = "complete" if action == "completed" else (action or status)
+    if entry.get("job_id"):
+        label += " #" + str(entry["job_id"])
+    # Submission/reuse alone must not hide a failed or uncertain worker state.
+    if (action and action != status and not (action == "completed" and status == "complete")
+            and not (action in {"submitted", "resumed"} and status in {"queued", "pending"})):
+        label += " (" + status + ")"
+    return _one_line(label)
+
+
+def format_launch_output(args, result):
+    """Present execution facts without dumping stored plans, context or records."""
+    suite = result.get("suite", args.id)
+    backend = result.get("backend", args.backend)
+    kind = result.get("backend_kind")
+    backend_label = f"{backend} ({kind})" if kind and backend != kind else backend
+    evaluation_only = result.get("evaluate_only", args.suite_action == "evaluate")
+    auto_eval = result.get("auto_evaluate", not args.no_auto_eval or evaluation_only)
+    mode = "evaluation only" if evaluation_only else (
+        "training + evaluation" if auto_eval else "training only")
+    dry_run = result.get("dry_run", False)
+    lines = [f"Suite {suite} | {backend_label} | {mode}" + (" | dry run" if dry_run else "")]
+    if dry_run:
+        plans = result.get("plans", [])
+        for plan in plans:
+            stages = [] if evaluation_only else ["train"]
+            profiles = list(plan.get("evaluation", {})) if auto_eval else []
+            if args.profile:
+                profiles = [profile for profile in profiles if profile == args.profile]
+            stages.extend("eval " + profile for profile in profiles)
+            lines.append(f"  {plan['cell']}: " + "; ".join(stages))
+        lines.append(f"{len(plans)} experiment(s) planned; no jobs submitted.")
+        return "\n".join(lines)
+
+    counts = {"training": {}, "evaluation": {}}
+    errors = 0
+    outcomes = result.get("outcomes", [])
+    for outcome in outcomes:
+        stages, messages = [], []
+        for key, label in (("training", "train"),):
+            entry = outcome.get(key)
+            if not isinstance(entry, dict):
+                continue
+            stages.append(label + " " + _stage_label(entry))
+            action = entry.get("action", entry.get("status", "unknown"))
+            if action != "not-requested":
+                counts[key][action] = counts[key].get(action, 0) + 1
+            if entry.get("error"):
+                messages.append(_one_line(entry["error"]))
+        for profile, entry in outcome.get("evaluation", {}).items():
+            stages.append("eval " + profile + " " + _stage_label(entry))
+            action = entry.get("action", entry.get("status", "unknown"))
+            if action != "not-requested":
+                counts["evaluation"][action] = counts["evaluation"].get(action, 0) + 1
+            if entry.get("error"):
+                messages.append(_one_line(entry["error"]))
+        if outcome.get("error"):
+            # The current operation's error already explains the failed stage;
+            # old stage errors must not repeat or obscure it.
+            messages = [_one_line(outcome["error"])]
+        if outcome.get("status") == "error":
+            errors += 1
+        if not stages:
+            stages.append(_one_line(outcome.get("status", "tracked")))
+        if messages:
+            stages.append("ERROR: " + "; ".join(dict.fromkeys(messages)))
+        lines.append(f"  {outcome['cell']}: " + "; ".join(stages))
+
+    summaries = []
+    for key, label in (("training", "training"), ("evaluation", "evaluations")):
+        if counts[key]:
+            summaries.append(label + ": " + ", ".join(
+                f"{count} {'complete' if action == 'completed' else action}"
+                for action, count in counts[key].items()))
+    summary = f"{len(outcomes)} experiment(s)"
+    if summaries:
+        summary += " | " + " | ".join(summaries)
+    summary += f" | {errors} error(s)"
+    lines.append(summary)
+    return "\n".join(lines)
+
+
 def main(argv=None):
     args = parser().parse_args(argv)
+    concise_launch = (args.command == "suite" and args.suite_action in {"launch", "evaluate"}
+                      and not args.json)
+    progress_count = 0
+    if concise_launch and not args.dry_run:
+        def progress(outcome):
+            nonlocal progress_count
+            lines = format_launch_output(args, {**outcome, "outcomes": [outcome]}).splitlines()
+            if not progress_count:
+                print(lines[0], flush=True)
+            print(lines[1], flush=True)
+            progress_count += 1
+        args._launch_progress = progress
     try:
         if args.command == "ui":
             project = Project.discover(args.project)
@@ -282,12 +388,17 @@ def main(argv=None):
             return graph_command(args)
         result = dispatch(args)
         if result is not None:
-            print(json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False))
+            if concise_launch:
+                output = format_launch_output(args, result)
+                print(output.splitlines()[-1] if progress_count else output)
+            else:
+                print(json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False))
         if args.command == "report" and args.report_action == "check" and not result["valid"]:
             return 1
         return 1 if isinstance(result, dict) and result.get("ok") is False else 0
     except (NAIAError, ReportError, AuthoringError, OSError, json.JSONDecodeError) as exc:
-        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        message = "Error: " + _one_line(exc) if concise_launch else json.dumps({"error": str(exc)})
+        print(message, file=sys.stderr)
         return 2
 
 

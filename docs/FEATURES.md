@@ -69,8 +69,8 @@ Onboarding records seven topics in `.lab/project.json`:
 | Topic | Options and decisions |
 | --- | --- |
 | Project | Goal, scope, success criteria, excluded work. |
-| Hardware | Local or Slurm, GPUs, memory, environments, shared paths. |
-| Execution | Commands, completion artifacts, resume behavior. |
+| Hardware | Local or Slurm, GPUs, CPU/memory/time, partitions/account/QoS, environments/shared paths, concurrency, exclusions. |
+| Execution | Existing Bash launchers, training/evaluation commands, completion artifacts, resume behavior. |
 | Evaluation | Metrics, splits, seeds, budgets, controls, constraints. |
 | Reporting | Formats and output destinations. |
 | Configuration | Keep the current setup; discuss Hydra for new projects or approved migrations. |
@@ -87,6 +87,11 @@ per-suite scripts, and register, validate, dry-run, and show a plan before autho
 launches. They require declared evaluations, duplicate checks, and approval before
 deletion, scope expansion, or recording unapproved interpretations. These are assistant
 instructions, not a sandbox or authentication system. Keep credentials out of context.
+
+From initial setup, the assistant inspects permitted existing `.sh`/`.sbatch` scripts and confirms
+their resource/environment defaults, asking only for missing details. It adapts shared Bash
+launch/evaluation wrappers with declarative suite configs; it does not generate per-suite scripts
+or assume Hydra. `naia init` itself does not create project launchers.
 
 ## Task queue
 
@@ -126,12 +131,15 @@ new training. Existing approval and result fingerprints are preserved.
 | Option | Behavior |
 | --- | --- |
 | Local | Run cells and declared evaluations sequentially. |
-| Slurm | Submit training in parallel and evaluations with `afterok` dependencies. |
+| Slurm | Submit one Bash training job per experiment, in parallel; evaluations use `afterok`. |
 | Automatic evaluation | On for declared profiles; explicit recovery opt-out. |
 | Selection | Choose a cell and/or evaluation profile. |
 | Dry run | Show the plan without launch records. |
 | Retry | Create a new attempt; evaluation-only retries do not retrain. |
 | Completion checks | Reuse verified work; inspect uncertain jobs before resubmitting. |
+
+Each experiment gets its own tracked training job unless you request grouping. Launch/evaluation
+output is one short status line per experiment plus totals; `--json` provides full records.
 
 NAIA can run in the project environment or a separate management environment.
 Training/evaluation scripts need NAIA only if they call it. `command_python` supplies

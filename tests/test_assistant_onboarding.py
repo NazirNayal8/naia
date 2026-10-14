@@ -167,6 +167,87 @@ class AssistantOnboardingTest(unittest.TestCase):
         self.project.install_instructions(["AGENTS.md", "CLAUDE.md"])
         self.assertEqual(registry.read_bytes(), before)
 
+    def test_suite_card_rules_reach_both_assistants_and_refresh_without_changing_records(self):
+        self.project.initialize(scan=False)
+        self.project.configure_assistant("both")
+        expected = (
+            "## Suite card design",
+            "Briefly state the suite's goal.",
+            "Briefly describe the controls and what changes in each experiment; explain any new formulation.",
+            "Omit unnecessary or unrelated text.",
+            "Include training and evaluation launch commands in fenced `bash` code blocks for direct copying.",
+        )
+        before_context = self.project.context_path.read_bytes()
+        registry = self.project.directory / "state/registry.json"
+        before_registry = registry.read_bytes()
+        for filename in FILES["both"]:
+            path = self.project.root / filename
+            text = path.read_text()
+            for rule in expected:
+                self.assertIn(rule, text)
+            path.write_text("User instructions: preserve this line.\n" + text.replace(
+                project_context.SUITE_CARD_RULES, "Previous suite-card rules.\n"))
+        self.project.install_instructions(["AGENTS.md", "CLAUDE.md"])
+        for filename in FILES["both"]:
+            text = (self.project.root / filename).read_text()
+            self.assertTrue(text.startswith("User instructions: preserve this line.\n"))
+            self.assertNotIn("Previous suite-card rules.", text)
+            for rule in expected:
+                self.assertIn(rule, text)
+        self.assertEqual(self.project.context_path.read_bytes(), before_context)
+        self.assertEqual(registry.read_bytes(), before_registry)
+
+    def test_launcher_rules_refresh_both_assistants_without_changing_project_records(self):
+        self.project.initialize(assistant="both", scan=False)
+        self.project.answer("hardware", {"scheduler": "slurm", "partition": "existing-gpu"},
+                            confirmed=True)
+        self.project.answer("execution", {"launch": "bash scripts/launch_suite.sh"},
+                            confirmed=True)
+        registry = self.project.directory / "state/registry.json"
+        write_json(registry, {"schema_version": 1, "suites": [
+            {"id": "EXISTING", "title": "User's existing suite"}]})
+        Tasks(self.project).add("REVIEW", title="Keep existing task", goal="Review evidence",
+                                decision="Choose next work")
+        record_paths = (self.project.context_path, registry, self.project.directory / "tasks.json")
+        before = {path: path.read_bytes() for path in record_paths}
+        expected = (
+            "## Suite launchers",
+            "inspect permitted existing `.sh`/`.sbatch` launch and submission scripts",
+            "ask only for missing or conflicting local/Slurm requirements",
+            "partitions/account/QoS",
+            "completion artifacts, and resume behavior",
+            "Reuse and adapt existing Bash scripts",
+            "shared `scripts/launch_suite.sh` and `scripts/eval_suite.sh` wrappers",
+            "Keep the project's configuration system",
+            "one independently tracked training job per experiment",
+            "Slurm experiments in parallel and run local experiments sequentially",
+            "unless the user specifies grouping or another schedule",
+            "one line per experiment",
+            "job ID when applicable",
+            "Use `--json` only when machine-readable detail is requested",
+        )
+        for filename in FILES["both"]:
+            path = self.project.root / filename
+            text = path.read_text()
+            for rule in expected:
+                self.assertIn(rule, text)
+            path.write_text("User instructions: retain existing cluster settings.\n" + text.replace(
+                project_context.SUITE_LAUNCHER_RULES, "Previous launcher guidance.\n"))
+        self.project.install_instructions(["AGENTS.md", "CLAUDE.md"])
+        for filename in FILES["both"]:
+            text = (self.project.root / filename).read_text()
+            self.assertTrue(text.startswith("User instructions: retain existing cluster settings.\n"))
+            self.assertNotIn("Previous launcher guidance.", text)
+            for rule in expected:
+                self.assertIn(rule, text)
+        self.assertEqual({path: path.read_bytes() for path in record_paths}, before)
+        hardware = next(item["question"] for item in QUESTIONS if item["field"] == "hardware")
+        execution = next(item["question"] for item in QUESTIONS if item["field"] == "execution")
+        self.assertIn("Confirm the inferred", hardware)
+        self.assertIn("partition/account/QoS/time", hardware)
+        self.assertIn("existing submission script", hardware)
+        self.assertIn("one job per experiment", execution)
+
     def test_configure_assistant_preserves_user_answers_and_policies(self):
         self.project.initialize()
         self.project.answer("project", {"goal": "Keep existing research context"}, confirmed=True)

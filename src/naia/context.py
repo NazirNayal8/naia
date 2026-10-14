@@ -44,8 +44,8 @@ DEFAULT_ANSWERS = {
 }
 QUESTIONS = [
     {"field": "project", "question": "What is the overall goal, scope, success criterion, and what is excluded?"},
-    {"field": "hardware", "question": "Where does work run: local GPUs, Slurm, or another system? Provide GPU/memory limits, concurrency, environments, shared paths, and optionally a submission script."},
-    {"field": "execution", "question": "How are training and evaluation invoked? What artifacts prove completion, and how does resume work?"},
+    {"field": "hardware", "question": "Confirm the inferred local/Slurm setup; supply missing GPU, CPU/memory, concurrency, environment/shared-path, partition/account/QoS/time, or node-exclusion settings. Point to an existing submission script if one is available."},
+    {"field": "execution", "question": "Confirm existing training/evaluation commands and Bash launchers, completion artifacts, and resume behavior; supply only missing details. Default: one job per experiment, Slurm parallel and local sequential."},
     {"field": "evaluation", "question": "Which metrics, splits, seeds, budgets, controls, and evaluation constraints matter?"},
     {"field": "reporting", "question": "Default: concise suite cards, with other reports only on request. Any different formats or destinations?"},
     {"field": "configuration", "question": "Which configuration system exists? Preserve it, or discuss composable Hydra for a new project or an explicitly approved migration?"},
@@ -89,7 +89,20 @@ REPORT_RULES = """- Create an HTML report only when requested, using approved re
 - Enable inline text/caption editing with `/reports/_kit/naia_report_editor.js` and unique `data-naia-edit="ID"` markers on plain-text leaves. For formatted prose, mark individual spans so links and emphasis stay intact. Never mark chart data, generated captions, or code. Verify Edit/Save/Cancel and conflicting external edits; preserve user changes when regenerating reports. Saves patch source HTML and keep one recoverable previous version without changing data or metadata. Offline exports are read-only.
 - Enable layout editing with one `data-naia-layout` root containing `data-naia-section` containers (also their own layouts) and direct `data-naia-item` children. Mark whole visuals with `data-naia-kind="visual"`, keeping scripts/data outside movable units. Verify add/remove/restore, drag/move controls, Save/Cancel, and unchanged numerical content; removal retains hidden figure targets.
 """
-ASSISTANT_RULES += "\n## Model visualization\n\n" + ARCHITECTURE_RULES + "\n## Reports\n\n" + REPORT_RULES
+SUITE_CARD_RULES = """- Briefly state the suite's goal.
+- Briefly describe the controls and what changes in each experiment; explain any new formulation.
+- Omit unnecessary or unrelated text.
+- Include training and evaluation launch commands in fenced `bash` code blocks for direct copying.
+"""
+SUITE_LAUNCHER_RULES = """- During initial setup, inspect permitted existing `.sh`/`.sbatch` launch and submission scripts. Infer established training/evaluation commands and resource defaults; confirm them with the user and ask only for missing or conflicting local/Slurm requirements. Record confirmed hardware/GPU assignments, CPU/memory/time limits, partitions/account/QoS, environments/shared paths, concurrency, node exclusions, completion artifacts, and resume behavior in project context. Never assume credentials, cluster permissions, or login-node execution.
+- Reuse and adapt existing Bash scripts. Use shared `scripts/launch_suite.sh` and `scripts/eval_suite.sh` wrappers, or established equivalents, with declarative suite-specific cells and resources. Keep the project's configuration system; do not proliferate per-suite scripts. Initialization does not generate project launchers: prepare or adapt them from confirmed project requirements.
+- Launch one independently tracked training job per experiment by default. Submit Slurm experiments in parallel and run local experiments sequentially, unless the user specifies grouping or another schedule. Keep declared automatic evaluation and duplicate/completion checks.
+- Launch output must be short: one line per experiment with its status, job ID when applicable, and reuse or failure reason, followed by totals. Use `--json` only when machine-readable detail is requested; do not print full JSON plans or records by default.
+"""
+ASSISTANT_RULES += ("\n## Suite card design\n\n" + SUITE_CARD_RULES
+                    + "\n## Suite launchers\n\n" + SUITE_LAUNCHER_RULES
+                    + "\n## Model visualization\n\n" + ARCHITECTURE_RULES
+                    + "\n## Reports\n\n" + REPORT_RULES)
 POLICY_TEXT = "NAIA assistant contract\n\n" + ASSISTANT_RULES
 INSTRUCTIONS_BEGIN = "<!-- naia:instructions -->"
 INSTRUCTIONS_END = "<!-- /naia:instructions -->"

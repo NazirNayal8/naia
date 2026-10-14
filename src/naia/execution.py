@@ -218,7 +218,10 @@ def submit_stage(project, record_path, evaluation=None, dependency=None):
     worker = [profile["management_python"], "-m", "naia.cli", "--project", str(project.root), "_worker", record_path]
     if evaluation:
         worker += ["--profile", evaluation]
-    arguments += ["--wrap", shlex.join(worker)]
+    script_relative = str(Path(record["plan"]["run_dir"]) / f"{stage}.sh")
+    script = project.path(script_relative)
+    script_text = "#!/usr/bin/env bash\nset -euo pipefail\nexec " + shlex.join(worker) + "\n"
+    arguments.append(str(script))
     def mark(status, **values):
         def mutate(current):
             item = current["evaluation"][evaluation] if evaluation else current["training"]
@@ -226,7 +229,16 @@ def submit_stage(project, record_path, evaluation=None, dependency=None):
                 item["status"] = status
             item.update(values)
         return update_record(project, record_path, mutate)
-    mark("submitting", submit_argv=arguments, submitted_at=now())
+    mark("submitting", submit_argv=arguments, submission_script=script_relative, submitted_at=now())
+    try:
+        if script.exists():
+            if script.read_text(encoding="utf-8") != script_text:
+                raise NAIAError("Existing submission script differs; inspect it before retrying")
+        else:
+            atomic_text(script, script_text)
+    except (OSError, ValueError) as exc:
+        mark("failed", error=f"Could not prepare Bash job script: {exc}")
+        raise NAIAError(f"Could not prepare Bash job script: {exc}") from exc
     try:
         submitted = subprocess.run(arguments, capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -281,7 +293,22 @@ def retry_evaluation(project, record, key):
     return update_record(project, record["record_path"], mutate)
 
 
-def launch(project, suite_id, *, backend="local", dry_run=False, auto_eval=True, retry=False, cell_id=None, evaluate_only=False, evaluation_id=None):
+def _launch_details(record, training_action, evaluation_actions):
+    def entry(values, action):
+        if action == "completed" and values["status"] != "complete":
+            action = values["status"]
+        elif (action in {"submitted", "resumed"} and not values.get("job_id")
+              and values["status"] != "complete"):
+            action = values["status"]
+        return {"status": values["status"], "action": action,
+                **{key: values[key] for key in ("job_id", "dependency", "error") if key in values}}
+    return {"attempt": record["attempt"], "record_path": record["record_path"],
+            "training": entry(record["training"], training_action),
+            "evaluation": {key: entry(value, evaluation_actions.get(key, "not-requested"))
+                           for key, value in record["evaluation"].items()}}
+
+
+def launch(project, suite_id, *, backend="local", dry_run=False, auto_eval=True, retry=False, cell_id=None, evaluate_only=False, evaluation_id=None, on_outcome=None):
     suites = Suites(project)
     data = suites.load(suite_id, approved=not evaluate_only)
     if evaluate_only and (data.get("status") not in {"approved", "sealed"} or not data.get("approval", {}).get("by")):
@@ -296,11 +323,21 @@ def launch(project, suite_id, *, backend="local", dry_run=False, auto_eval=True,
         raise NAIAError("Cell selector matched no cells")
     if evaluation_id and evaluation_id not in {p["id"] for p in data["evaluation"]}:
         raise NAIAError("Unknown evaluation profile")
+    summary = {"suite": suite_id, "backend": backend, "backend_kind": profile["kind"],
+               "evaluate_only": evaluate_only, "auto_evaluate": auto_eval or evaluate_only}
     if dry_run:
-        return {"dry_run": True, "backend": backend, "auto_evaluate": auto_eval or evaluate_only,
-                "plans": [{"cell": c["id"], **build_plan(project, data, c, "DRY-RUN", profile)} for c in selected]}
+        plans = []
+        for cell in selected:
+            plan = {"cell": cell["id"], **build_plan(project, data, cell, "DRY-RUN", profile)}
+            plan["evaluation"] = {key: value for key, value in plan["evaluation"].items()
+                                  if (auto_eval or evaluate_only) and (not evaluation_id or key == evaluation_id)}
+            plans.append(plan)
+        return {**summary, "dry_run": True, "plans": plans}
     outcomes = []
     for cell in selected:
+        record = None
+        training_action = "not-requested" if evaluate_only else "blocked"
+        evaluation_actions = {}
         try:
             with locked(project.path(f".lab/state/locks/run-{suite_id}-{cell['id']}.lock"), timeout=0):
                 record = suites.pointer(suite_id, cell["id"])
@@ -317,6 +354,8 @@ def launch(project, suite_id, *, backend="local", dry_run=False, auto_eval=True,
                     raise NAIAError("Uncertain training state requires inspection, not resubmission")
                 if status in {"failed", "dependency_failed"} and not retry:
                     raise NAIAError("Use --retry to create a new attempt for failed work")
+                if not evaluate_only and status in {"queued", "running", "complete"}:
+                    training_action = "reused"
                 if not record or status in {"failed", "dependency_failed"}:
                     resume_from = ""
                     if record and data.get("resume_artifact") and data["training"].get("resume_argv"):
@@ -324,6 +363,8 @@ def launch(project, suite_id, *, backend="local", dry_run=False, auto_eval=True,
                         if candidate.is_file():
                             resume_from = str(candidate)
                     record = prepare_attempt(project, data, cell, profile, resume_from)
+                    training_action = "resumed" if resume_from else (
+                        "completed" if profile["kind"] == "local" else "submitted")
                     if profile["kind"] == "local":
                         record = run_stage(project, record["record_path"], "train")
                     else:
@@ -339,8 +380,10 @@ def launch(project, suite_id, *, backend="local", dry_run=False, auto_eval=True,
                         state = latest["evaluation"][key]["status"]
                         if state == "complete":
                             suites.checked_result(latest, evaluation)
+                            evaluation_actions[key] = "reused"
                             continue
                         if state in {"queued", "running"}:
+                            evaluation_actions[key] = "reused"
                             continue
                         if state != "pending":
                             # New output filenames avoid reusing metrics from a failed evaluation.
@@ -350,11 +393,25 @@ def launch(project, suite_id, *, backend="local", dry_run=False, auto_eval=True,
                                 raise NAIAError(f"Evaluation {key} is not safely retryable")
                             retry_evaluation(project, latest, key)
                         if profile["kind"] == "local":
+                            evaluation_actions[key] = "completed"
                             run_stage(project, record["record_path"], "eval-" + key, key)
                         else:
+                            evaluation_actions[key] = "submitted"
                             submit_stage(project, record["record_path"], key, dependency)
-                outcomes.append({"cell": cell["id"], "status": "tracked", "attempt": record["attempt"]})
+                latest = read_json(project.path(record["record_path"]))
+                outcome = {"cell": cell["id"], "status": "tracked",
+                           **_launch_details(latest, training_action, evaluation_actions)}
         except NAIAError as exc:
-            outcomes.append({"cell": cell["id"], "status": "error", "error": str(exc)})
+            outcome = {"cell": cell["id"], "status": "error", "error": str(exc)}
+            if record:
+                try:
+                    latest = read_json(project.path(record["record_path"]))
+                    outcome.update(_launch_details(latest, training_action, evaluation_actions))
+                except NAIAError:
+                    pass
+        outcome = {**summary, **outcome}
+        outcomes.append(outcome)
+        if on_outcome is not None:
+            on_outcome(outcome)
     suites.sync()
-    return {"suite": suite_id, "outcomes": outcomes, "ok": all(o["status"] != "error" for o in outcomes)}
+    return {**summary, "outcomes": outcomes, "ok": all(o["status"] != "error" for o in outcomes)}

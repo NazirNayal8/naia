@@ -165,9 +165,18 @@ naia suite seal SUITE --by YOUR_NAME
 ```
 
 Registration and sealing require actual user approval. Launch/evaluate accept `--backend`, `--cell`,
-`--profile`, `--dry-run`, and `--retry`. Declared evaluations run automatically; use launch's
+`--profile`, `--dry-run`, `--retry`, and `--json`. Launch/evaluate print one concise status line per
+experiment and a summary; `--json` returns full machine-readable output. Declared evaluations run automatically; use launch's
 `--no-auto-eval` only for recovery. Local work runs sequentially; Slurm queues dependent evaluations.
 Completed work is reused after verification.
+
+During setup, your assistant confirms resource and environment settings from permitted existing
+submission scripts, asking only for missing details. It reuses or adapts shared Bash launch/evaluation
+wrappers, such as `scripts/launch_suite.sh` and `scripts/eval_suite.sh`, with declarative suite configs.
+Each experiment has its own tracked training job unless you request grouping; Slurm submits in
+parallel and local work runs sequentially. `naia init` does not generate these project scripts.
+Slurm submissions save a Bash job file beside each attempt's records and logs; evaluations retain
+their `afterok` dependency on training.
 
 Evaluation retry preserves earlier evidence without retraining; training retry creates a new attempt.
 Inspect uncertain states before retrying. Dry runs create no launch records. Changed definitions need a new suite.

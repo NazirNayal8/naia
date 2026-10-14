@@ -1,5 +1,17 @@
 # Release notes
 
+## 0.1.0a13
+
+- Suite-card rules require concise goals, controls, experiment changes/formulations, and copyable launch commands.
+- Onboarding confirms execution requirements from existing scripts; assistants adapt shared Bash launchers.
+- Slurm submissions save per-experiment Bash job files and preserve dependent evaluation and duplicate checks.
+- Launch/evaluate stream compact status lines with job IDs, reuse/errors, and totals; full JSON is opt-in.
+
+Refresh project instructions with `naia instructions install` after upgrading.
+Automation parsing launch/evaluate output must add `--json`.
+
+Verified: 446 package tests, mocked Slurm/CPU integrations, package builds, and isolated installation.
+
 ## 0.1.0a12
 
 - Suite cards with links work when Reports is excluded; loading errors appear as readable text.
