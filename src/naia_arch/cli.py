@@ -105,7 +105,7 @@ def add_graph_commands(p):
 
 
 def parser():
-    p = argparse.ArgumentParser(prog="naia-arch", description="Config-independent architecture viewer (development alpha)")
+    p = argparse.ArgumentParser(prog="naia-arch", description="Config-independent architecture viewer (beta)")
     add_graph_commands(p)
     return p
 

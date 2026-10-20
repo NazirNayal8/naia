@@ -158,7 +158,7 @@ evaluation can have separate resources. Supported fields are
 
 The dashboard prints its URL, chooses an available random port, and labels the tab
 `NAIA - <project folder>`. `--port` selects an exact port; binding stays loopback-only
-with a session token. It uses the local research UI's dark theme and four views:
+with a session token. The dark-themed dashboard has four views:
 
 - Task queue: create/edit tasks, pack/unpack cards, drag to reorder, start/pause/resume,
   complete with a note, and remove into a recoverable archive.
@@ -256,7 +256,7 @@ The standalone viewer uses `http://127.0.0.1:8768`; the dashboard chooses an ava
 The browser reads saved graphs and does not run factories or capture training runs.
 Drag nodes and arrow bends, pan/zoom, switch hierarchy levels, search, inspect module
 metadata and shapes, save layouts, export SVG, and play observed calls. Compare two or
-three registered captures side by side or as an overlay. Colors match the local viewer.
+three registered captures side by side or as an overlay, with the same layer colors across views.
 Module enumeration records hierarchy; hooks record calls and shapes. Sample capture also
 records runtime tensor dependencies by default, with best-effort FX fallback. Observed,
 traced, and explicitly declared evidence remain distinct; hook order alone does not prove flow.
@@ -289,5 +289,5 @@ Lens does not edit the model.
 
 Records stay local; NAIA does not upload them or require an AI API key. Your assistant's
 setup is separate. `lab`, `naia-arch`, and `lab-arch` remain compatibility commands.
-This MIT-licensed alpha is not on PyPI yet; real-cluster validation and historical
-import/migration remain unfinished.
+NAIA is MIT-licensed and is not on PyPI yet. Broader real-cluster validation,
+interrupted local-run recovery, and importing existing records remain in progress.

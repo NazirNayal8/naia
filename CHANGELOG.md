@@ -1,5 +1,15 @@
 # Release notes
 
+## 0.1.0b1
+
+- First beta release, with consistent package and CLI version labels.
+- Revised user guide covering onboarding, full project setup, customization, and contributions.
+- Updated task-editing examples, upgrade guidance, and remote-dashboard instructions.
+- Light/dark logos and documentation included in the source distribution.
+
+After upgrading, run `naia instructions install` in each project and restart the dashboard.
+Broader real-cluster validation and interrupted local-run recovery remain in progress.
+
 ## 0.1.0a14
 
 - Multiple tasks can be active together, with teal cards and an Active badge.

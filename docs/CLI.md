@@ -30,6 +30,18 @@ Excluded or inaccessible folders show a Reports-unavailable message without bloc
 Commands find `.lab/project.json` in the current directory or its ancestors.
 Select a project with `naia --project /path/to/project <command>`.
 
+### Remote dashboard
+
+On the remote machine, run `naia ui --port 9000`. From your own machine, forward that port:
+
+```bash
+ssh -N -L 9000:127.0.0.1:9000 USER@HOST
+```
+
+Open `http://127.0.0.1:9000` locally. Use the same available port on both sides; `HOST` must be the machine running `naia ui`. If that machine needs a jump host, use your cluster's SSH forwarding setup. Leave the UI server and SSH connection running. Keep local training launchers in `tmux` or another persistent session if you disconnect.
+
+### Assistant integration
+
 Choose `codex`, `claude`, or `both` to install managed rules in root `AGENTS.md`, `CLAUDE.md`, or both.
 Setup preserves existing text. Without a recorded choice, `naia init` returns a question for your assistant.
 For an already initialized NAIA project, use `naia instructions install --assistant both`.
@@ -146,6 +158,8 @@ naia task done REVIEW --note "Approved the follow-up"
 
 Other actions: `pause`, `resume`, `cancel`, `move-top`, and `assign ID --owner NAME`; each accepts `--note`.
 Add accepts `--owner`, repeated `--material` and `--depends-on`, and `--top`. Related tasks do not block selection.
+Several tasks can be active together. They appear first in the browser and CLI;
+pausing returns a task to its saved priority without pausing the others.
 See [queue behavior](FEATURES.md#task-queue).
 
 ## Suites and recovery

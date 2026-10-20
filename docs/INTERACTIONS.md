@@ -39,8 +39,9 @@ For Slurm, share a submission script if the repository does not supply enough ev
 
 > Pause that review, assign the data audit to Alex, and show me the next task.
 
-The assistant updates the queue. You can also change task status and priority
-in the browser, but editing task titles and goals is not yet supported there.
+The assistant updates the queue. You can also edit task titles and goals, change
+status, and reorder tasks in the browser. Several tasks can be active together;
+they are highlighted at the top, and pausing restores their saved priority.
 
 ## Experiments
 

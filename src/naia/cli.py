@@ -17,7 +17,7 @@ from .browser_server import port_number
 
 
 def parser():
-    p = argparse.ArgumentParser(prog="naia", description="NAIA (Nazir's AI Assistant): local-first research workflow (development alpha)")
+    p = argparse.ArgumentParser(prog="naia", description="NAIA (Nazir's AI Assistant): local-first research workflow (beta)")
     p.add_argument("--project", help="Project root; otherwise discover .lab in ancestors")
     p.add_argument("--reports-root", help="Project-relative report directory (default: .lab/reports)")
     sub = p.add_subparsers(dest="command", required=True)

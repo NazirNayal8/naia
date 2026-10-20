@@ -1,4 +1,4 @@
-"""Compatibility imports for the development alpha; use naia_arch instead."""
+"""Compatibility imports for earlier releases; use naia_arch instead."""
 
 from importlib import import_module
 import sys
