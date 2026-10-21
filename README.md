@@ -13,6 +13,8 @@ NAIA (Nazir's AI Assistant) is a tool to help manage your research project and a
 
 You talk to your existing assistant; NAIA keeps the tasks, experiments, results, and reports in your project. It is not a separate chatbot or hosted service.
 
+The screenshots below use demo data.
+
 ## Experimental Suites
 
 NAIA represents the research projects as a directed graph of experimental suites. A suite aims at exploring a certain research question. Within the suite, you can define several experiments and variations which all together aim at verifying the research question at hand.
@@ -21,19 +23,27 @@ You create a suite by proposing the idea to your agent, and your initial thought
 
 After this suite is done, the results will inspire new research questions. So when you create new suites after discussing the results of the previous one, NAIA will remember. Within your graph view, the new suites will be linked directionally to the previous suites. This is quite useful because at the end of the week, after trying multiple ideas after one another, the time of your research meeting will arrive, and you will forget how you have arrived at this point. But not any more. With NAIA, you can simply trace back your train of thought throughout the week by iterating over the suites from child to parent. Moreover, if you get stuck at some point, you can stare at the suite graph and decide to branch out with new ideas from an earlier stage in the project, because with NAIA, your thoughts are documented.
 
+![NAIA suite graph linking related experiments](docs/assets/examples/suite-graph.png)
+
 ## Task Queue
 
 With this, if you have 4 ideas that are totally separate at the same time, you can prepare their suites and launch them all together. However, the next day, you will wake up, look at your screen and ask yourself: "Why did I do this, what experiments should I track, and what results should I evaluate?" This is quite troublesome. NAIA has your back: your assistant keeps track of the reviews and decisions you need to make, and each completed suite automatically adds a review task. Open the task queue and work through these one by one. Each task contains its goal and the material you should review. You can also keep several tasks active; they are highlighted and stay at the top of the queue.
 
+
+![NAIA task queue with multiple active tasks](docs/assets/examples/task-queue.png)
 
 ## NAIA Lens: the Architecture Visualizer
 
 After having your assistant write lots of code, let's say you want to debug your architecture. But oops, there is a lot of code that you're unfamiliar with now and it will take days to look through it. Ask your assistant to add an experimental configuration to Lens. It will prepare a graph with project-aware names, connections, and intermediate tensor sizes that you can inspect at different granularities. You can play back a captured input path and compare separately captured model variants. Lens shows what was captured; it does not edit your model or run new configurations from the browser.
 
 
+![NAIA Lens showing model components, connections, and tensor sizes](docs/assets/examples/architecture.png)
+
 ## Reports
 
 Let's say you ran many experiments and found some interesting results. Now you want to inspect some properties of your method. Discuss the analysis with your agent, ask it to run it, and summarize the results in a report with interactive plots. You can edit the prose and captions, rearrange sections and visuals, replace any AI slop writing, and use the report directly in your research meeting. Chart data stays unchanged by these edits.
+
+![Interactive NAIA report with filters and charts](docs/assets/examples/interactive-report.png)
 
 ## Install
 
