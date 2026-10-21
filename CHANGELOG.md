@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.1.0b2
+
+- Mark ready or paused tasks done without starting them, with an optional completion note.
+- Examples now show seven real screenshots of the queue, suite graph, result cards, Lens, and report viewing/editing.
+- Screenshot assets are included in the source distribution.
+
+Restart the dashboard after upgrading.
+
 ## 0.1.0b1
 
 - First beta release, with consistent package and CLI version labels.

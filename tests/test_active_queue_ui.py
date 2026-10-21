@@ -56,14 +56,14 @@ class Element {
     for(const callback of this.listeners[name]||[])await callback(event);return event;}
 }
 const nodes=new Map(),node=id=>{if(!nodes.has(id))nodes.set(id,new Element('div'));return nodes.get(id);};
-const calls=[],context={console,state:null,items:[],ordered:[],focusId:'',unpacked:false,draggedId:null,
+const calls=[],completions=[],context={console,state:null,items:[],ordered:[],focusId:'',unpacked:false,draggedId:null,
   $:node,document:{createElement:tag=>new Element(tag)},
   element:(tag,text,cls)=>{const out=new Element(tag);if(text!==undefined)out.textContent=text;if(cls)out.className=cls;return out;},
   button:(text,callback,cls='ghost')=>{const out=new Element('button');out.textContent=text;out.className=cls;
     out.addEventListener('click',callback);return out;},
   esc:value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),
   guarded:callback=>callback,act:async(action,payload)=>calls.push({action,payload}),
-  matchMedia:()=>({matches:true}),openTaskForm(){},openCompletion(){},removeTask(){}};
+  matchMedia:()=>({matches:true}),openTaskForm(){},openCompletion(id){completions.push(id);},removeTask(){}};
 vm.createContext(context);vm.runInContext(input.source,context);
 function setTasks(tasks,focus='') {context.state={tasks:{items:tasks},focus_id:focus,architectures:[]};context.renderQueue();}
 function task(id,status='ready'){return {id,title:'Task '+id,status,goal:'Review '+id,priority:50,materials:[]};}
@@ -102,6 +102,17 @@ function assertIds(expected){assert.deepEqual(ids(),expected);}
     context.renderQueue();assert.equal(card('B').querySelector('.details').classList.contains('open'),true);
     const complete=card('B').querySelector('.details').querySelectorAll('button').find(button=>button.textContent==='Complete');
     assert.ok(complete);assert.ok(node('pauseCurrentAction').children.length);
+  } else if(input.case==='direct_completion') {
+    setTasks([task('A'),task('B','active'),task('C','paused'),task('D','done'),task('E','cancelled')]);
+    for(const [id,label] of [['A','Mark done'],['C','Mark done'],['B','Complete']]) {
+      const buttons=card(id).querySelector('.details').querySelectorAll('button');
+      const complete=buttons.find(button=>button.textContent===label);
+      assert.ok(complete,'Missing '+label+' for '+id);await complete.fire('click');
+      assert.equal(completions.pop(),id);assert.equal(calls.length,0);
+    }
+    assert.ok(card('A').querySelector('.details').querySelectorAll('button').some(button=>button.textContent==='Start'));
+    assert.ok(card('C').querySelector('.details').querySelectorAll('button').some(button=>button.textContent==='Resume'));
+    assert.equal(card('D'),undefined);assert.equal(card('E'),undefined);
   } else if(input.case==='fallback') {
     setTasks([{id:'A',title:'No status'},task('B','done'),task('C','removed')],'C');
     assertIds(['A']);assert.equal(context.focusId,'A');assert.match(card('A').innerHTML,/>ready<\/span>/);
@@ -149,6 +160,9 @@ class ActiveQueueUITest(unittest.TestCase):
 
     def test_selected_active_focus_and_details_survive_rendering(self):
         self.case("details_focus")
+
+    def test_ready_and_paused_tasks_can_complete_without_start_or_resume(self):
+        self.case("direct_completion")
 
     def test_missing_status_is_ready_and_closed_tasks_are_never_focused(self):
         self.case("fallback")

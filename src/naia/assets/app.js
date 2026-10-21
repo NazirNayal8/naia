@@ -89,6 +89,7 @@ function taskCard(task,index) {
   if(isActive(task))actions.append(button('Complete',()=>openCompletion(task.id),''),
     button('Pause',()=>act('pause',{id:task.id}),'secondary'));
   if(task.status==='paused')actions.append(button('Resume',()=>act('resume',{id:task.id}),''));
+  if(['ready','paused'].includes(status))actions.append(button('Mark done',()=>openCompletion(task.id),'secondary'));
   actions.append(button('Modify',()=>openTaskForm(task.id),'secondary'),button('Remove',()=>removeTask(task.id),'danger'));
   details.append(actions); card.append(toggle,details); return card;
 }

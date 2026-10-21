@@ -150,6 +150,26 @@ class UIParityTest(unittest.TestCase):
         self.assertEqual(self.state()["tasks"]["items"]["B"]["status"], "active")
         self.assertEqual(self.state()["focus_id"], "B")
 
+    def test_ready_task_completes_directly_without_disturbing_active_tasks(self):
+        self.add_task("A")
+        self.add_task("B")
+        self.assertEqual(self.api("/api/action", {"action": "start", "id": "B"})[0], 200)
+        before = self.state()
+        status, response = self.api("/api/action", {
+            "action": "done", "id": "A", "note": "Already reviewed.\nNo start needed.",
+        })
+        self.assertEqual(status, 200, response)
+        state = self.state()
+        completed = state["tasks"]["items"]["A"]
+        self.assertEqual(completed["status"], "done")
+        self.assertNotIn("started_at", completed)
+        self.assertEqual(completed["notes"][-1]["text"], "Already reviewed.\nNo start needed.")
+        self.assertEqual(state["tasks"]["items"]["B"], before["tasks"]["items"]["B"])
+        self.assertEqual(state["focus_id"], "B")
+        saved = self.queue_snapshot()
+        self.assertEqual(self.api("/api/action", {"action": "done", "id": "A"})[0], 400)
+        self.assertEqual(self.queue_snapshot(), saved)
+
     def test_state_promotes_active_tasks_without_rewriting_manual_order(self):
         for task_id in ("A", "B", "C", "D"):
             self.add_task(task_id)

@@ -7,7 +7,7 @@
 
 <p align="center"><em>Your research, as a graph.</em></p>
 
-Beta `0.1.0b1` · [MIT](https://github.com/NazirNayal8/naia/blob/main/LICENSE)
+Beta `0.1.0b2` · [MIT](https://github.com/NazirNayal8/naia/blob/main/LICENSE)
 
 NAIA (Nazir's AI Assistant) is a tool to help manage your research project and accelerate it using Codex and/or Claude.
 
@@ -45,7 +45,7 @@ pip install "git+https://github.com/NazirNayal8/naia.git"
 
 Creating, editing, and exporting reports currently needs POSIX filesystem support; on Windows, use WSL for those features. NAIA is not yet published on PyPI, so `pip install naia` is not the command for this project.
 
-<!-- Append `@v0.1.0b1` to the URL to install that release. NAIA is not yet published
+<!-- Append `@v0.1.0b2` to the URL to install that release. NAIA is not yet published
 on PyPI, so `pip install naia` is not the command for this project. -->
 
 <!-- NAIA's task/suite management and graph viewing need no GPU, PyTorch, or AI API key. -->
