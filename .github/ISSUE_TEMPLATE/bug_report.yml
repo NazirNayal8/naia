@@ -1,0 +1,35 @@
+name: Bug report
+description: Report a problem with NAIA.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: Remove credentials, private project data, and sensitive paths from shared logs or screenshots.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include the smallest example or commands that demonstrate the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include NAIA and Python versions, operating system, and browser or local/Slurm setup if relevant.
+      placeholder: "NAIA: ...\nPython: ...\nOS: ...\nBrowser or execution setup: ..."
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste only the relevant output, with private information removed.
+      render: text

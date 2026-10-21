@@ -165,6 +165,8 @@ For a new feature or a different interface, you can fork NAIA and install your c
 
 ## Contributing
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the fork, test, and review workflow.
+
 Bug reports, documentation fixes, and pull requests are welcome. For a larger feature, open an [issue](https://github.com/NazirNayal8/naia/issues) first so we can discuss the approach.
 
 Fork and clone the repository, create a branch for your change, then run from the checkout's root:
